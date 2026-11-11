@@ -6,7 +6,7 @@ namespace TeamElarin.GitSync.Editor
 {
     /// <summary>
     /// 설정 화면 (Edit → Project Settings → Git Sync, 또는 Tools → Git → 설정).<br/>
-    /// 위쪽은 프로젝트 공용 설정(<c>GitSyncSettings.json</c>), 아래쪽은 이 PC만의 설정(EditorPrefs)입니다.
+    /// 위쪽은 프로젝트 공용 설정(<c>ProjectSettings/GitSyncSettings.json</c>), 아래쪽은 이 PC만의 설정(EditorPrefs)입니다.
     /// </summary>
     /// <remarks>작성일: 2026-11-11</remarks>
     public class GitSyncSettingsProvider : SettingsProvider
@@ -83,7 +83,7 @@ namespace TeamElarin.GitSync.Editor
 
         private void DrawProjectSettings()
         {
-            EditorGUILayout.LabelField("프로젝트 공용 설정 (GitSyncSettings.json, Git에 올라감)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("프로젝트 공용 설정 (ProjectSettings/GitSyncSettings.json, Git에 올라감)", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
 
             _settings.Repo = EditorGUILayout.TextField(new GUIContent("저장소 폴더", "비우면 프로젝트 폴더가 들어 있는 Git 저장소. 상대 경로는 프로젝트 폴더 기준"), _settings.Repo);

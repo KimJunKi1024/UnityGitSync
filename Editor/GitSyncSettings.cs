@@ -6,10 +6,10 @@ using UnityEngine;
 namespace TeamElarin.GitSync.Editor
 {
     /// <summary>
-    /// 프로젝트 공용 설정 (프로젝트 루트 <c>GitSyncSettings.json</c>, Git에 올려 팀이 같이 씀).<br/>
+    /// 프로젝트 공용 설정 (<c>ProjectSettings/GitSyncSettings.json</c>, Git에 올려 팀이 같이 씀).<br/>
     /// 파이썬 도구(<c>Tools~/gitsync_common.py</c>)도 같은 파일·같은 키를 읽습니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11</remarks>
+    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-11 (설정 파일 위치를 프로젝트 루트에서 ProjectSettings로)</remarks>
     public class GitSyncSettings
     {
         #region [ 공개 프로퍼티 (Public Properties) ]
@@ -36,7 +36,7 @@ namespace TeamElarin.GitSync.Editor
         public string AutoSummary { get; set; } = AUTO_SUMMARY_OFF;
 
         /// <summary>설정 파일 전체 경로.</summary>
-        public static string FilePath => Path.Combine(ProjectRoot, FILE_NAME);
+        public static string FilePath => Path.Combine(ProjectRoot, "ProjectSettings", FILE_NAME);
 
         /// <summary>Unity 프로젝트 폴더 (Assets의 부모).</summary>
         public static string ProjectRoot => Directory.GetParent(Application.dataPath).FullName;

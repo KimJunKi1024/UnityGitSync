@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 
-SETTINGS_FILE = "GitSyncSettings.json"
+SETTINGS_FILE = os.path.join("ProjectSettings", "GitSyncSettings.json")
 DEFAULT_SETTINGS = {
     "repo": "",                  # 비우면 프로젝트 폴더가 들어 있는 Git 저장소
     "branch": "main",
@@ -47,7 +47,7 @@ def setup_console():
 
 
 def load_settings(project):
-    """프로젝트 루트의 GitSyncSettings.json을 읽어 기본값과 합칩니다. 파일이 없으면 기본값."""
+    """ProjectSettings/GitSyncSettings.json을 읽어 기본값과 합칩니다. 파일이 없으면 기본값."""
     settings = dict(DEFAULT_SETTINGS)
     path = os.path.join(project, SETTINGS_FILE)
     if os.path.isfile(path):

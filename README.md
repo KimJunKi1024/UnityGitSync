@@ -28,7 +28,7 @@ Unity에서 **Window → Package Manager → 왼쪽 위 + → Add package from g
 https://github.com/KimJunKi1024/UnityGitSync.git
 ```
 
-특정 버전으로 고정하려면 끝에 `#v1.0.0`처럼 태그를 붙입니다.
+특정 버전으로 고정하려면 끝에 `#v1.0.1`처럼 태그를 붙입니다.
 저장소가 비공개(Private)이면 설치하는 PC에 GitHub 로그인(Git 자격 증명)이 되어 있어야 합니다.
 
 또는 프로젝트의 `Packages/manifest.json`의 `dependencies`에 직접 넣어도 됩니다.
@@ -42,7 +42,7 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 
 | 항목 | 저장 위치 | 기본값 | 설명 |
 |---|---|---|---|
-| 저장소 폴더 | `GitSyncSettings.json` | 비움 | 비우면 프로젝트 폴더가 들어 있는 Git 저장소. 프로젝트가 저장소의 하위 폴더여도 됨 |
+| 저장소 폴더 | `ProjectSettings/GitSyncSettings.json` | 비움 | 비우면 프로젝트 폴더가 들어 있는 Git 저장소. 프로젝트가 저장소의 하위 폴더여도 됨 |
 | 원격 이름 / 브랜치 | 〃 | `origin` / `main` | 푸시할 곳 |
 | 푸시 주기 (분) | 〃 | 60 | 카운트 시작부터 이 시간이 지나면 푸시 차례 |
 | 묶음 커밋 만들기 | 〃 | 켬 | 마지막 푸시 뒤의 개별 커밋을 작업 내용·파일 수를 합산한 묶음 커밋 1개로 합쳐 그것만 올림 (개별 커밋은 로컬에도 남지 않음). 끄면 개별 커밋을 그대로 올림 |
@@ -51,7 +51,7 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 | Python 경로 | EditorPrefs (PC별) | `python` | |
 | claude 경로 | EditorPrefs (PC별) | 비움(PATH) | Unity가 PATH를 못 볼 때 `claude.exe` 전체 경로 |
 
-`GitSyncSettings.json`은 프로젝트 루트에 생기며 **Git에 올려 팀이 같이 씁니다.**
+`ProjectSettings/GitSyncSettings.json`에 저장되며 **Git에 올려 팀이 같이 씁니다.**
 
 ### 작업 내용을 정하는 순서
 1. 작업 기록 폴더에 저장소에 아직 없는 새 항목이 있으면 그 제목 (`- 334. 제목`)

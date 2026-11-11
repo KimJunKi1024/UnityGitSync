@@ -1,5 +1,8 @@
 # 변경 기록
 
+## [1.0.1] - 2026-11-11
+- 설정 파일 위치를 프로젝트 루트 `GitSyncSettings.json`에서 `ProjectSettings/GitSyncSettings.json`으로 옮김 (프로젝트 루트를 깨끗하게)
+
 ## [1.0.0] - 2026-11-11
 - 첫 공개: 커밋 창(Tools → Git → 커밋 창), 설정 화면(Tools → Git → 설정), 파이썬 커밋·푸시 도구
 - 엘라린 프로젝트의 sync_to_git.py·push_bundle.py·GitCommitWindow를 일반화
