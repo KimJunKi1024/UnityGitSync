@@ -16,7 +16,7 @@ namespace TeamElarin.GitSync.Editor
     /// 저장소의 바뀐 파일을 보여 주고 고른 파일만 로컬 커밋합니다. 아래쪽에서 푸시 카운트를 보고 푸시합니다.<br/>
     /// 실제 일은 패키지의 파이썬 도구(<c>gitsync_commit.py</c>, <c>gitsync_push.py</c>)가 합니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)</remarks>
+    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)<br/>수정일: 2026-11-12 (열기·커밋·푸시 전에 환경 확인)</remarks>
     public class GitCommitWindow : EditorWindow
     {
         #region [ 상수 (Constants) ]
@@ -154,6 +154,10 @@ namespace TeamElarin.GitSync.Editor
         [MenuItem(MENU_PATH, false, 0)]
         public static void Open()
         {
+            // 필수 프로그램(git·Python·도구·저장소)이 빠져 있으면 환경 확인 창을 먼저 띄움
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+                return;
+
             GitCommitWindow window = GetWindow<GitCommitWindow>("Git 커밋");
             window.minSize = new Vector2(540f, 480f);
         }
@@ -182,6 +186,8 @@ namespace TeamElarin.GitSync.Editor
 
                 if (isBusy)
                     GUILayout.Label(GetBusyLabel(), GUILayout.Width(70f));
+                if (GUILayout.Button("환경 확인", EditorStyles.toolbarButton, GUILayout.Width(64f)))
+                    GitSyncEnvironmentWindow.Open();
                 if (GUILayout.Button("설정", EditorStyles.toolbarButton, GUILayout.Width(40f)))
                     GitSyncSettingsProvider.Open();
             }
@@ -314,12 +320,12 @@ namespace TeamElarin.GitSync.Editor
                 using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(_pushStatus.timerStart)))
                 {
                     if (GUILayout.Button("카운트 시작", GUILayout.Height(24f)))
-                        RunTask(TaskKind.PushStart, GitSyncTools.PUSH_SCRIPT, "--start");
+                        RunUserTask(TaskKind.PushStart, GitSyncTools.PUSH_SCRIPT, "--start");
                 }
                 using (new EditorGUI.DisabledScope(_pushStatus.pendingCommits == 0))
                 {
                     if (GUILayout.Button("푸시…", GUILayout.Height(24f)))
-                        RunTask(TaskKind.PushPreview, GitSyncTools.PUSH_SCRIPT, "--dry-run");
+                        RunUserTask(TaskKind.PushPreview, GitSyncTools.PUSH_SCRIPT, "--dry-run");
                 }
             }
         }
@@ -462,6 +468,15 @@ namespace TeamElarin.GitSync.Editor
             _runningTask = GitSyncTools.RunAsync(script, arguments);
         }
 
+        // 사용자가 누른 커밋·푸시 동작: 필수 환경이 빠져 있으면 실행하지 않고 환경 확인 창을 띄움
+        private void RunUserTask(TaskKind kind, string script, string arguments)
+        {
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+                return;
+
+            RunTask(kind, script, arguments);
+        }
+
         private void RefreshStatus()
         {
             if (_runningTask != null)
@@ -539,6 +554,9 @@ namespace TeamElarin.GitSync.Editor
 
         private void Commit()
         {
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+                return;
+
             List<string> dirtyScenes = GetDirtySceneNames();
             if (dirtyScenes.Count > 0)
             {

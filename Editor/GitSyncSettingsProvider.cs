@@ -8,7 +8,7 @@ namespace TeamElarin.GitSync.Editor
     /// 설정 화면 (Edit → Project Settings → Git Sync, 또는 Tools → Git → 설정).<br/>
     /// 위쪽은 프로젝트 공용 설정(<c>ProjectSettings/GitSyncSettings.json</c>), 아래쪽은 이 PC만의 설정(EditorPrefs)입니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11</remarks>
+    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-12 (환경 확인 창 열기 버튼)</remarks>
     public class GitSyncSettingsProvider : SettingsProvider
     {
         #region [ 상수 (Constants) ]
@@ -132,6 +132,13 @@ namespace TeamElarin.GitSync.Editor
             string claude = EditorGUILayout.DelayedTextField(new GUIContent("claude 경로", "자동 요약에만 씀. 비우면 PATH에서 찾음 (Unity가 PATH를 못 볼 때 claude.exe 전체 경로)"), GitSyncPrefs.ClaudePath);
             if (claude != GitSyncPrefs.ClaudePath)
                 GitSyncPrefs.ClaudePath = claude;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.PrefixLabel(" ");
+                if (GUILayout.Button(new GUIContent("환경 확인 열기", "git·Python·도구·저장소·설정이 이 PC에 갖춰졌는지 실제로 실행해 확인"), GUILayout.Width(120f)))
+                    GitSyncEnvironmentWindow.Open();
+            }
 
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("명령줄 도구 위치", EditorStyles.boldLabel);
