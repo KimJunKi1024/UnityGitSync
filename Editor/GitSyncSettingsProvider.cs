@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -8,7 +9,7 @@ namespace TeamElarin.GitSync.Editor
     /// 설정 화면 (Edit → Project Settings → Git Sync, 또는 Tools → Git → 설정).<br/>
     /// 위쪽은 프로젝트 공용 설정(<c>ProjectSettings/GitSyncSettings.json</c>), 아래쪽은 이 PC만의 설정(EditorPrefs)입니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-12 (환경 확인 창 열기 버튼)</remarks>
+    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-12 (환경 확인 창 열기 버튼)<br/>수정일: 2026-11-12 (Python 경로 자동 탐색 안내, 저장소 폴더 절대 경로 경고, 자동 요약 안내)</remarks>
     public class GitSyncSettingsProvider : SettingsProvider
     {
         #region [ 상수 (Constants) ]
@@ -87,6 +88,8 @@ namespace TeamElarin.GitSync.Editor
             EditorGUI.BeginChangeCheck();
 
             _settings.Repo = GitSyncSettings.CleanPath(EditorGUILayout.TextField(new GUIContent("저장소 폴더", "비우면 프로젝트 폴더가 들어 있는 Git 저장소. 상대 경로는 프로젝트 폴더 기준"), _settings.Repo));
+            if (Path.IsPathRooted(_settings.Repo))
+                EditorGUILayout.HelpBox("이 PC의 경로입니다. 이 설정은 Git으로 팀과 공유되므로 다른 PC에서는 저장소를 잘못 찾습니다.\n비워 두거나(자동으로 찾음) 프로젝트 기준 상대 경로(예: ..)를 쓰세요.", MessageType.Warning);
             _settings.Remote = EditorGUILayout.TextField(new GUIContent("원격 이름", "푸시할 원격 (보통 origin)"), _settings.Remote);
             _settings.Branch = EditorGUILayout.TextField(new GUIContent("브랜치", "푸시할 브랜치 (보통 main)"), _settings.Branch);
             _settings.PushIntervalMinutes = EditorGUILayout.IntField(new GUIContent("푸시 주기 (분)", "다음 작업을 시작한 순간부터 이 시간이 지나면 푸시 차례"), _settings.PushIntervalMinutes);
@@ -96,6 +99,8 @@ namespace TeamElarin.GitSync.Editor
             int summaryIndex = _settings.AutoSummary == GitSyncSettings.AUTO_SUMMARY_CLAUDE ? 1 : 0;
             summaryIndex = EditorGUILayout.Popup(new GUIContent("작업 내용 자동 요약", "작업 기록·직접 쓴 제목이 없을 때 쓰는 방법. claude가 30초 안에 답하지 않으면 파일 이름 요약"), summaryIndex, AUTO_SUMMARY_LABELS);
             _settings.AutoSummary = summaryIndex == 1 ? GitSyncSettings.AUTO_SUMMARY_CLAUDE : GitSyncSettings.AUTO_SUMMARY_OFF;
+            if (summaryIndex == 1)
+                EditorGUILayout.HelpBox("PC마다 Claude Code(claude 명령)가 있어야 합니다. 없는 PC에서는 파일 이름 요약으로 대신합니다 (Git Sync 패널에서 확인).", MessageType.None);
 
             if (EditorGUI.EndChangeCheck())
                 _isDirty = true;
@@ -125,9 +130,17 @@ namespace TeamElarin.GitSync.Editor
         {
             EditorGUILayout.LabelField("이 PC만의 설정 (EditorPrefs)", EditorStyles.boldLabel);
 
-            string python = EditorGUILayout.DelayedTextField(new GUIContent("Python 경로", "python 3.8 이상. PATH에 있으면 python 그대로"), GitSyncPrefs.PythonPath);
-            if (python != GitSyncPrefs.PythonPath)
-                GitSyncPrefs.PythonPath = python;
+            string python = EditorGUILayout.DelayedTextField(new GUIContent("Python 경로", "Python 3.8 이상. 비우면 자동으로 찾음 (Windows: python → py → python3, macOS·Linux: python3 → python)"), GitSyncPrefs.PythonPathSetting);
+            if (python != GitSyncPrefs.PythonPathSetting)
+                GitSyncPrefs.PythonPathSetting = python;
+            if (GitSyncPrefs.IsPythonAuto)
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.PrefixLabel(" ");
+                    GUILayout.Label("비워 두면 자동으로 찾습니다. 지금: " + GitSyncPrefs.PythonPath, EditorStyles.miniLabel);
+                }
+            }
 
             string claude = EditorGUILayout.DelayedTextField(new GUIContent("claude 경로", "자동 요약에만 씀. 비우면 PATH에서 찾음 (Unity가 PATH를 못 볼 때 claude.exe 전체 경로)"), GitSyncPrefs.ClaudePath);
             if (claude != GitSyncPrefs.ClaudePath)
@@ -136,7 +149,7 @@ namespace TeamElarin.GitSync.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.PrefixLabel(" ");
-                if (GUILayout.Button(new GUIContent("환경 확인 열기", "git·Python·도구·저장소·설정이 이 PC에 갖춰졌는지 실제로 실행해 확인"), GUILayout.Width(120f)))
+                if (GUILayout.Button(new GUIContent("Git Sync 패널 열기", "git·Python·claude·저장소·설정이 이 PC에 갖춰졌는지 실제로 실행해 확인하고, 빠진 프로그램을 설치"), GUILayout.Width(140f)))
                     GitSyncEnvironmentWindow.Open();
             }
 

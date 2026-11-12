@@ -107,6 +107,79 @@ def has_head(repo):
     return r.returncode == 0
 
 
+def current_branch(repo):
+    """지금 있는 브랜치 이름. 브랜치가 아닌 곳(detached HEAD)이면 빈 문자열. 첫 커밋 전이어도 이름은 나옴."""
+    r = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "-q", "HEAD"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+# 진행 중인 Git 작업 표시 파일 → 이름 (이 상태에서 커밋·푸시하면 병합·리베이스가 엉킴)
+IN_PROGRESS_MARKERS = [
+    ("MERGE_HEAD", "병합(merge)", "git merge --continue / --abort"),
+    ("rebase-merge", "리베이스(rebase)", "git rebase --continue / --abort"),
+    ("rebase-apply", "리베이스(rebase)·am", "git rebase --continue / --abort (am이면 git am --continue / --abort)"),
+    ("CHERRY_PICK_HEAD", "체리픽(cherry-pick)", "git cherry-pick --continue / --abort"),
+    ("REVERT_HEAD", "되돌리기(revert)", "git revert --continue / --abort"),
+    ("BISECT_LOG", "이분 탐색(bisect)", "git bisect reset"),
+]
+
+
+def find_operation(repo):
+    """진행 중인 병합·리베이스 등이 있으면 (이름, 끝내는 명령), 없으면 None."""
+    for marker, name, hint in IN_PROGRESS_MARKERS:
+        path = run_git(repo, "rev-parse", "--git-path", marker, check=False).strip()
+        if path and os.path.exists(path if os.path.isabs(path) else os.path.join(repo, path)):
+            return name, hint
+    return None
+
+
+def operation_in_progress(repo):
+    """진행 중인 병합·리베이스 등이 있으면 그 이름, 없으면 빈 문자열."""
+    found = find_operation(repo)
+    return found[0] if found else ""
+
+
+def fail_if_in_progress(repo, action):
+    """병합·리베이스 등이 끝나지 않았으면 멈춤."""
+    found = find_operation(repo)
+    if found:
+        fail(f"{found[0]}이(가) 아직 끝나지 않았습니다. 마무리하거나 취소한 뒤 {action}하세요. ({action}하지 않음)\n  {found[1]}")
+
+
+def fail_if_detached(repo, action):
+    """브랜치가 아닌 커밋(detached HEAD)이면 멈춤: 여기서 만든 커밋은 브랜치를 옮기는 순간 어디에도 속하지 않게 됨."""
+    if not current_branch(repo):
+        fail(f"지금 브랜치가 아닌 커밋(detached HEAD)에 있습니다. {action}하지 않습니다.\n"
+             "  브랜치로 돌아가거나(git checkout main) 여기서 새 브랜치를 만드세요(git checkout -b 새이름).")
+
+
+def run_quiet(args, timeout):
+    """출력을 받지 않고 실행해 종료 코드를 돌려줍니다. 시간이 지나면 하위 프로세스까지 끝내고 None.
+
+    출력을 파이프로 받으면 Windows에서는 시간 초과 뒤에도 git-remote-https·자격 증명 관리자 같은
+    하위 프로세스가 파이프를 쥐고 있어 끝없이 기다릴 수 있으므로 출력은 버립니다.
+    """
+    proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(proc)
+        return None
+
+
+def kill_tree(proc):
+    """프로세스와 그 하위 프로세스를 함께 끝냅니다 (Windows는 .cmd·git이 띄운 프로세스까지)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    else:
+        proc.kill()
+    try:
+        proc.communicate(timeout=5)
+    except (subprocess.TimeoutExpired, ValueError):
+        pass
+
+
 def summary_line(now=None):
     """커밋 요약 줄: "2026-11-11 PM 5:24"."""
     now = now or datetime.datetime.now()

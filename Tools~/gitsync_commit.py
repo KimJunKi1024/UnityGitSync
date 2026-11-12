@@ -14,7 +14,9 @@
     3) 설정 autoSummary가 "claude"면 `claude -p`로 바뀐 내용 자동 요약 (30초 안에 못 받으면 4로)
     4) 파일 종류·이름으로 만든 규칙 요약
 
-멈추는 경우: 고르지 않은 파일이 이미 스테이징돼 있음, 커밋할 파일이 없음.
+멈추는 경우: 브랜치가 아닌 커밋(detached HEAD), 병합·리베이스·bisect 등이 끝나지 않음, 고르지 않은 파일이 이미 스테이징돼 있음, 커밋할 파일이 없음.
+도중에 실패하면 스테이징을 실행 전 상태로 되돌림. 이미 스테이징된 삭제(git rm --cached)는 다시 올리지 않고 그대로 커밋.
+주의만 출력(멈추지 않음): Packages/manifest.json에서 패키지가 빠짐, 설정 repo에 PC 절대 경로.
 """
 import argparse
 import json
@@ -88,7 +90,7 @@ def claude_summary(name_status, diff_text):
     try:
         out, err = proc.communicate(prompt, timeout=CLAUDE_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        kill_tree(proc)
+        common.kill_tree(proc)
         print(f"자동 요약: {CLAUDE_TIMEOUT_SECONDS}초 안에 답이 없어 규칙 요약으로 씁니다.", file=sys.stderr)
         return None
     if proc.returncode != 0:
@@ -104,18 +106,6 @@ def claude_summary(name_status, diff_text):
         if len(lines) >= SUMMARY_MAX_LINES:
             break
     return lines or None
-
-
-def kill_tree(proc):
-    """시간 초과한 claude와 그 하위 프로세스를 함께 끝냅니다 (Windows는 .cmd가 띄운 프로세스까지)."""
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-    else:
-        proc.kill()
-    try:
-        proc.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
 
 
 def decide_work_items(project, repo, settings, title, name_status, diff_text, allow_auto):
@@ -143,23 +133,43 @@ def read_paths(list_file):
     return paths
 
 
+def split_z(text):
+    return [p for p in text.split("\0") if p]
+
+
 def stage(repo, paths, env=None):
-    """paths(None이면 전체)를 인덱스에 올리고 (name-status 줄 목록, 차이 앞부분)을 돌려줍니다."""
-    def git(*args):
+    """paths(None이면 전체)를 인덱스에 올리고 (name-status 줄 목록, 차이 앞부분)을 돌려줍니다.
+
+    이미 스테이징된 삭제(git rm --cached 로 추적만 해제한 파일)는 다시 올리지 않고 그대로 커밋합니다.
+    """
+    def git(*args, input_text=None, ok_codes=(0,)):
         r = subprocess.run(["git", "-c", "core.quotepath=false", "-C", repo, *args],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
-        if r.returncode != 0:
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+                           input=input_text)
+        if r.returncode not in ok_codes:
             common.fail(f"git {' '.join(args)} 실패:\n{r.stderr.strip()}")
         return r.stdout
 
+    untracked_by_user = set(split_z(git("diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z")))
     if paths is None:
         git("add", "-A")
     else:
-        tracked = set(git("ls-files").splitlines())
-        usable = [p for p in paths if os.path.exists(os.path.join(repo, p)) or p in tracked]
+        tracked = set(split_z(git("ls-files", "-z")))
+        usable = []
         for p in paths:
-            if p not in usable:
+            if p in untracked_by_user:
+                continue  # 이미 스테이징된 삭제: 그대로 둠
+            if os.path.exists(os.path.join(repo, p)) or p in tracked:
+                usable.append(p)
+            else:
                 print(f"건너뜀(파일도 기록도 없음): {p}", file=sys.stderr)
+        # 추적하지 않는 파일 중 .gitignore에 걸린 것은 git이 올리기를 거부함 → 건너뜀
+        new_files = [p for p in usable if p not in tracked]
+        if new_files:
+            ignored = set(split_z(git("check-ignore", "-z", "--stdin", input_text="\0".join(new_files) + "\0", ok_codes=(0, 1))))
+            for p in sorted(ignored):
+                print(f"건너뜀(.gitignore에 걸린 새 파일): {p}", file=sys.stderr)
+            usable = [p for p in usable if p not in ignored]
         if usable:
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as tmp:
                 tmp.write("\n".join(usable) + "\n")
@@ -167,6 +177,11 @@ def stage(repo, paths, env=None):
                 git("add", "-A", f"--pathspec-from-file={tmp.name}")
             finally:
                 os.remove(tmp.name)
+    # add -A가 추적 해제를 되살렸으면 다시 뺌 (파일은 작업 폴더에 그대로)
+    if untracked_by_user:
+        revived = sorted(untracked_by_user & set(split_z(git("ls-files", "-z"))))
+        if revived:
+            git("update-index", "--force-remove", "-z", "--stdin", input_text="\0".join(revived) + "\0")
     name_status = [r for r in git("diff", "--cached", "--name-status", "-M").splitlines() if r.strip()]
     diff_text = git("diff", "--cached", "--stat") + "\n" + git("diff", "--cached", "-M")[:DIFF_LIMIT_CHARS]
     return name_status, diff_text
@@ -192,7 +207,7 @@ def preview_stage(repo, paths):
 
 def check_staged_outside(repo, paths):
     """목록 밖 파일이 이미 스테이징돼 있으면 멈춤 (사용자가 따로 올린 변경이 섞이지 않도록)."""
-    staged = [p for p in common.run_git(repo, "diff", "--cached", "--name-only").splitlines() if p]
+    staged = [p for p in common.run_git(repo, "diff", "--cached", "--name-only", "--no-renames").splitlines() if p]
     if paths is not None:
         chosen = set(paths)
         staged = [p for p in staged if p not in chosen]
@@ -206,11 +221,7 @@ def check_staged_outside(repo, paths):
 def remote_behind(repo, settings):
     """원격이 몇 커밋 앞서 있는지 (확인 실패면 -1)."""
     remote, branch = settings["remote"], settings["branch"]
-    try:
-        fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", remote], capture_output=True, timeout=20)
-    except subprocess.TimeoutExpired:
-        return -1
-    if fetched.returncode != 0:
+    if common.run_quiet(["git", "-C", repo, "fetch", "-q", remote], 20) != 0:
         return -1
     ref = f"refs/remotes/{remote}/{branch}"
     if subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", ref], capture_output=True).returncode != 0:
@@ -220,24 +231,91 @@ def remote_behind(repo, settings):
     return int(common.run_git(repo, "rev-list", "--count", f"HEAD..{ref}").strip() or 0)
 
 
-def print_status_json(project, repo, prefix, settings):
+def status_files(repo):
+    """커밋 창 목록: [{"path", "kind"}]. kind: added | modified | deleted | renamed | untracked(추적 해제)."""
     kinds = {"A": "added", "?": "added", "D": "deleted", "R": "renamed"}
-    files = []
-    for row in common.run_git(repo, "status", "--porcelain=v1", "-uall").splitlines():
+    files = {}
+    staged_deleted = set()
+    for row in common.run_git(repo, "status", "--porcelain=v1", "-uall", "--no-renames").splitlines():
         if len(row) < 4:
             continue
         code = row[:2].replace(" ", "") or "M"
         path = row[3:].split(" -> ")[-1].strip('"')
-        files.append({"path": path, "kind": kinds.get(code[0], "modified")})
-    files.sort(key=lambda f: f["path"])
+        if row[0] == "D":
+            staged_deleted.add(path)
+        if path in files:
+            # git rm --cached 로 추적만 해제한 파일: "D " 와 "??" 두 줄로 나옴 → "추적 해제" 한 줄로
+            if path in staged_deleted and code == "??":
+                files[path]["kind"] = "untracked"
+            continue
+        files[path] = {"path": path, "kind": kinds.get(code[0], "modified")}
+    return sorted(files.values(), key=lambda f: f["path"])
+
+
+def is_pc_path(path):
+    """PC마다 다른 절대 경로인지 (C:\\…, /Users/…, \\\\server\\…)."""
+    return bool(re.match(r"^([A-Za-z]:[\\/]|[\\/])", path or ""))
+
+
+def read_head_file(repo, rel_path):
+    r = subprocess.run(["git", "-C", repo, "show", f"HEAD:{rel_path}"], capture_output=True)
+    return r.stdout.decode("utf-8-sig", errors="replace") if r.returncode == 0 else None
+
+
+def removed_packages(repo, prefix):
+    """Packages/manifest.json의 dependencies 중 HEAD에는 있고 작업 폴더에서는 빠진 패키지 이름."""
+    rel = (prefix + "/" if prefix else "") + "Packages/manifest.json"
+    before = read_head_file(repo, rel)
+    if before is None:
+        return []
+    try:
+        old = json.loads(before).get("dependencies") or {}
+        path = os.path.join(repo, rel)
+        if not os.path.isfile(path):
+            return sorted(old)
+        with open(path, encoding="utf-8-sig") as f:
+            new = json.load(f).get("dependencies") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    return sorted(k for k in old if k not in new)
+
+
+def commit_warnings(repo, prefix, name_status):
+    """커밋할 파일 중 팀에 문제가 될 수 있는 것 (멈추지는 않음)."""
+    base = prefix + "/" if prefix else ""
+    paths = {row.split("\t")[-1] for row in name_status}
+    warnings = []
+    if base + "Packages/manifest.json" in paths:
+        gone = removed_packages(repo, prefix)
+        if gone:
+            warnings.append("Packages/manifest.json에서 패키지가 빠집니다: " + ", ".join(gone)
+                            + "\n  의도한 것이 아니면 manifest.json을 커밋 목록에서 빼세요.")
+    settings_rel = base + common.SETTINGS_FILE.replace("\\", "/")
+    if settings_rel in paths:
+        try:
+            with open(os.path.join(repo, settings_rel), encoding="utf-8-sig") as f:
+                repo_value = str(json.load(f).get("repo") or "").strip().strip("\"'")
+        except (OSError, ValueError, AttributeError):
+            repo_value = ""
+        if is_pc_path(repo_value):
+            warnings.append(f"{settings_rel}의 repo에 이 PC의 경로가 들어 있습니다: {repo_value}"
+                            "\n  팀원 PC에서는 저장소를 잘못 찾습니다. 설정의 '저장소 폴더'를 비우거나 상대 경로로 바꾸세요.")
+    return warnings
+
+
+def print_status_json(project, repo, prefix, settings):
+    files = status_files(repo)
     data = {
         "project": project,
         "repo": repo,
         "projectPrefix": prefix,
         "branch": settings["branch"],
+        "currentBranch": common.current_branch(repo),
+        "operation": common.operation_in_progress(repo),
         "behind": remote_behind(repo, settings),
         "autoSummary": str(settings.get("autoSummary", "off")),
         "entries": [{"number": n, "title": t} for n, t in new_entries(project, repo, settings)],
+        "removedPackages": removed_packages(repo, prefix),
         "files": files,
     }
     print(json.dumps(data, ensure_ascii=False))
@@ -245,13 +323,79 @@ def print_status_json(project, repo, prefix, settings):
 
 def run_commit(project, repo, settings, paths, title, dry_run, allow_auto):
     if dry_run:
+        operation = common.operation_in_progress(repo)
+        if operation:
+            print(f"주의: {operation}이(가) 진행 중이라 실제 커밋은 멈춥니다.", file=sys.stderr)
+        if not common.current_branch(repo):
+            print("주의: 브랜치가 아닌 커밋(detached HEAD)이라 실제 커밋은 멈춥니다.", file=sys.stderr)
         name_status, diff_text = preview_stage(repo, paths)
     else:
+        common.fail_if_in_progress(repo, "커밋")
+        common.fail_if_detached(repo, "커밋")
         check_staged_outside(repo, paths)
-        name_status, diff_text = stage(repo, paths)
+        backup = backup_index(repo)
+        head_before = head_commit(repo)
+        try:
+            commit_staged(project, repo, settings, paths, title, allow_auto)
+        except BaseException:
+            # 커밋 전에 실패하면 인덱스를 실행 전 상태로 (추적 해제·스테이징이 흐트러지지 않게).
+            # 커밋이 이미 만들어졌으면 되돌리지 않음 (되돌리면 방금 커밋한 내용을 거꾸로 돌리는 변경이 스테이징됨)
+            if head_commit(repo) == head_before:
+                restore_index(repo, backup)
+            raise
+        finally:
+            if backup and os.path.exists(backup):
+                os.remove(backup)
+        return
     if not name_status:
         print("바뀐 파일이 없어 커밋하지 않았습니다.")
         return
+    preview_or_commit(project, repo, settings, name_status, diff_text, title, allow_auto, True)
+
+
+def head_commit(repo):
+    """지금 HEAD 커밋 (첫 커밋 전이면 빈 문자열)."""
+    return common.run_git(repo, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
+
+
+def index_path(repo):
+    path = common.run_git(repo, "rev-parse", "--git-path", "index").strip()
+    return path if os.path.isabs(path) else os.path.join(repo, path)
+
+
+def backup_index(repo):
+    """인덱스 파일 복사본 경로 (인덱스가 없으면 None)."""
+    source = index_path(repo)
+    if not os.path.isfile(source):
+        return None
+    fd, backup = tempfile.mkstemp(suffix=".index")
+    os.close(fd)
+    shutil.copyfile(source, backup)
+    return backup
+
+
+def restore_index(repo, backup):
+    target = index_path(repo)
+    if backup and os.path.isfile(backup):
+        shutil.copyfile(backup, target)
+    elif os.path.isfile(target):
+        os.remove(target)  # 실행 전에는 인덱스가 없었음
+    print("실패해서 스테이징을 실행 전 상태로 되돌렸습니다.", file=sys.stderr)
+
+
+def commit_staged(project, repo, settings, paths, title, allow_auto):
+    name_status, diff_text = stage(repo, paths)
+    if not name_status:
+        print("바뀐 파일이 없어 커밋하지 않았습니다.")
+        return
+    preview_or_commit(project, repo, settings, name_status, diff_text, title, allow_auto, False)
+
+
+def preview_or_commit(project, repo, settings, name_status, diff_text, title, allow_auto, dry_run):
+    prefix = os.path.relpath(project, repo).replace("\\", "/")
+    prefix = "" if prefix == "." or prefix.startswith("..") else prefix
+    for warning in commit_warnings(repo, prefix, name_status):
+        print("주의: " + warning, file=sys.stderr)
 
     items, source = decide_work_items(project, repo, settings, title, name_status, diff_text, allow_auto)
     message = common.build_message(items, name_status)

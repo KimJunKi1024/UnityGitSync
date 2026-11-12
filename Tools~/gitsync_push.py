@@ -16,7 +16,9 @@
     python gitsync_push.py --status-json  상태를 JSON으로 (Unity 커밋 창이 사용)
 
 상태 파일: <프로젝트>/Library/GitSync/push_state.json (PC마다 따로, Library라 Git에 안 올라감)
-멈추는 경우: 원격에 이 PC에 없는 커밋이 있음, 이미 스테이징된 변경이 있음, 올릴 커밋이 없음. 강제 푸시는 하지 않음.
+멈추는 경우: 지금 브랜치가 설정의 브랜치가 아님, 병합·리베이스 등이 끝나지 않음, 원격에 이 PC에 없는 커밋이 있음,
+           이미 스테이징된 변경이 있음, 올릴 커밋이 없음. 강제 푸시는 하지 않음.
+첫 푸시(원격에 브랜치가 없음)는 묶지 않고 기존 기록을 그대로 올림.
 """
 import argparse
 import datetime
@@ -26,6 +28,9 @@ import subprocess
 import tempfile
 
 import gitsync_common as common
+
+FETCH_TIMEOUT_SECONDS = 60
+LOG_PREVIEW_LIMIT = 20
 
 
 def state_path(project):
@@ -83,11 +88,34 @@ def pending_commits(repo, settings):
     return common.run_git(repo, "rev-list", "--reverse", "HEAD").split(), empty_tree(repo)
 
 
+def check_branch(repo, settings):
+    """지금 브랜치가 설정의 푸시 브랜치인지 확인. 아니면 멈춤 (다른 브랜치의 작업이 푸시 브랜치로 올라가지 않도록)."""
+    branch = settings["branch"]
+    current = common.current_branch(repo)
+    if not current:
+        common.fail(f"지금 브랜치가 아닌 커밋(detached HEAD)에 있습니다. 설정의 푸시 브랜치({branch})로 옮긴 뒤 푸시하세요. (푸시하지 않음)\n"
+                    f"  git checkout {branch}\n"
+                    "  여기서 만든 커밋이 있으면 옮기기 전에 git checkout -b 새이름 으로 먼저 보관하세요 (그냥 옮기면 그 커밋은 어느 브랜치에도 속하지 않음).")
+    if current != branch:
+        common.fail(f"지금 브랜치는 {current}입니다. 설정의 푸시 브랜치({branch})로 옮긴 뒤 푸시하세요. (푸시하지 않음)\n"
+                    f"  git checkout {branch}   (이 브랜치를 올리려면 설정의 '브랜치'를 {current}로 바꾸세요)")
+
+
+def fetch_remote(repo, remote):
+    """원격 정보를 받아 옵니다. 실패·시간 초과면 멈춤."""
+    code = common.run_quiet(["git", "-C", repo, "fetch", "-q", remote], FETCH_TIMEOUT_SECONDS)
+    if code is None:
+        common.fail(f"원격({remote}) 확인이 {FETCH_TIMEOUT_SECONDS}초 안에 끝나지 않았습니다(네트워크·로그인). 푸시하지 않습니다.")
+    if code != 0:
+        common.fail(f"원격({remote})을 확인하지 못했습니다(네트워크·권한). 푸시하지 않습니다.")
+
+
 def bundle_message(repo, settings):
     """원격 확인 후 (묶음 커밋 설명, 올릴 커밋 수, 원격 브랜치가 있는지)."""
     remote, branch = settings["remote"], settings["branch"]
-    if subprocess.run(["git", "-C", repo, "fetch", "-q", remote], capture_output=True).returncode != 0:
-        common.fail(f"원격({remote})을 확인하지 못했습니다(네트워크·권한). 푸시하지 않습니다.")
+    common.fail_if_in_progress(repo, "푸시")
+    check_branch(repo, settings)
+    fetch_remote(repo, remote)
     ref = remote_ref(settings)
     has_remote = ref_exists(repo, ref)
     if has_remote:
@@ -136,6 +164,9 @@ def cmd_status_json(project, repo, settings):
         "pendingCommits": len(commits),
         "remote": settings["remote"],
         "branch": settings["branch"],
+        "currentBranch": common.current_branch(repo),
+        "operation": common.operation_in_progress(repo),
+        "firstPush": not ref_exists(repo, remote_ref(settings)),
         "bundleCommit": bool(settings["bundleCommit"]),
     }
     print(json.dumps(data, ensure_ascii=False))
@@ -154,13 +185,22 @@ def cmd_start(project, settings):
 
 def cmd_push(project, repo, settings, dry_run):
     message, count, has_remote = bundle_message(repo, settings)
-    bundle = bool(settings["bundleCommit"])
+    # 원격에 브랜치가 없는 첫 푸시는 묶지 않음: 이 도구로 만들지 않은 기존 기록까지 하나로 합쳐 버리지 않도록
+    bundle = bool(settings["bundleCommit"]) and has_remote
     remote, branch = settings["remote"], settings["branch"]
     target = f"{remote}/{branch}"
     if bundle:
         print(f"개별 커밋 {count}개 → 묶음 커밋 1개로 합쳐 올림 → {target}\n--- 묶음 커밋 설명 ---\n{message}")
     else:
-        print(f"올릴 커밋 {count}개 → {target} (묶음 커밋 끔, 개별 커밋 그대로)")
+        if settings["bundleCommit"]:
+            print(f"원격에 {branch} 브랜치가 없어 첫 푸시는 묶지 않고 커밋 {count}개를 그대로 올립니다. 다음 푸시부터 묶습니다.")
+        print(f"올릴 커밋 {count}개 → {target}" + ("" if settings["bundleCommit"] else " (묶음 커밋 끔, 개별 커밋 그대로)"))
+        commits, _ = pending_commits(repo, settings)
+        shown = commits[-LOG_PREVIEW_LIMIT:]
+        for c in reversed(shown):
+            print("  " + common.run_git(repo, "log", "-1", "--format=%h %s", c).strip())
+        if len(commits) > len(shown):
+            print(f"  … 외 {len(commits) - len(shown)}개")
     if dry_run:
         print("(미리보기: 아무것도 바꾸지 않음)")
         return
@@ -169,27 +209,34 @@ def cmd_push(project, repo, settings, dry_run):
 
     upstream = [] if has_remote else ["-u"]
     if bundle:
-        # 개별 커밋을 합친 묶음 커밋 1개: 내용은 지금 HEAD와 같고 부모는 원격 브랜치(첫 푸시면 부모 없음).
+        # 개별 커밋을 합친 묶음 커밋 1개: 내용은 지금 HEAD와 같고 부모는 원격 브랜치 (첫 푸시는 묶지 않으므로 원격 브랜치가 늘 있음).
         # 먼저 묶음 커밋을 푸시하고, 성공한 뒤에만 로컬 브랜치를 옮김 → 푸시가 실패하면 로컬은 그대로.
         # 작업 폴더·스테이징은 건드리지 않음 (git reset --soft).
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".txt") as f:
             f.write(message)
             path = f.name
         try:
-            parent = ["-p", remote_ref(settings)] if has_remote else []
+            parent = ["-p", remote_ref(settings)]
             squashed = common.run_git(repo, "commit-tree", "HEAD^{tree}", *parent, "-F", path).strip()
         finally:
             os.remove(path)
-        common.run_git(repo, "push", *upstream, remote, f"{squashed}:refs/heads/{branch}")
-        common.run_git(repo, "reset", "-q", "--soft", squashed)
-        if not has_remote:
+        common.run_git(repo, "push", remote, f"{squashed}:refs/heads/{branch}")
+        common.run_git(repo, "reset", "-q", "--soft", squashed, check=False)
+        moved = common.run_git(repo, "rev-parse", "HEAD", check=False).strip() == squashed
+        if moved:
+            # 원격 브랜치는 있었지만 로컬 브랜치에 추적 설정이 없던 경우를 위해 (이미 있으면 같은 값)
             common.run_git(repo, "branch", "-q", f"--set-upstream-to={remote}/{branch}", check=False)
     else:
-        common.run_git(repo, "push", *upstream, remote, f"HEAD:{branch}")
+        common.run_git(repo, "push", *upstream, remote, f"HEAD:refs/heads/{branch}")
+        moved = True
     s = load_state(project)
     s["last_push"] = now().isoformat()
     s["timer_start"] = None
     save_state(project, s)
+    if not moved:
+        # 원격에는 묶음 커밋이 올라갔는데 로컬 브랜치를 옮기지 못함: 그대로 두면 다음 푸시가 '원격이 앞서 있음'으로 멈춤
+        common.fail(f"원격에는 묶음 커밋 {squashed[:7]}을(를) 올렸지만 로컬 브랜치를 그 커밋으로 옮기지 못했습니다.\n"
+                    f"작업 폴더 변경은 그대로입니다. 저장소 폴더에서 다음을 실행하세요:\n  git reset --soft {squashed}")
     print(f"푸시 완료: {common.run_git(repo, 'log', '-1', '--format=%h %s').strip()}\n카운트 멈춤 (다음 작업을 시작할 때 --start)")
 
 

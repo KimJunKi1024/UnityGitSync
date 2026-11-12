@@ -16,7 +16,7 @@ namespace TeamElarin.GitSync.Editor
     /// 저장소의 바뀐 파일을 보여 주고 고른 파일만 로컬 커밋합니다. 아래쪽에서 푸시 카운트를 보고 푸시합니다.<br/>
     /// 실제 일은 패키지의 파이썬 도구(<c>gitsync_commit.py</c>, <c>gitsync_push.py</c>)가 합니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)<br/>수정일: 2026-11-12 (열기·커밋·푸시 전에 환경 확인)</remarks>
+    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)<br/>수정일: 2026-11-12 (열기·커밋·푸시 전에 환경 확인)<br/>수정일: 2026-11-12 (지금 브랜치·진행 중 작업·첫 푸시 표시, 브랜치가 다르면 푸시 막음)<br/>수정일: 2026-11-12 (추적 해제 표시, 패키지 빠짐 경고·확인)</remarks>
     public class GitCommitWindow : EditorWindow
     {
         #region [ 상수 (Constants) ]
@@ -46,8 +46,11 @@ namespace TeamElarin.GitSync.Editor
             public string repo;
             public string projectPrefix;
             public string branch;
+            public string currentBranch;  // 비어 있으면 브랜치가 아닌 커밋(detached HEAD)
+            public string operation;      // 진행 중인 병합·리베이스 등 (없으면 빈 문자열)
             public int behind;
             public string autoSummary;
+            public string[] removedPackages; // Packages/manifest.json에서 빠지는 패키지 (HEAD 대비)
             public EntryData[] entries;
             public FileData[] files;
         }
@@ -63,7 +66,7 @@ namespace TeamElarin.GitSync.Editor
         private class FileData
         {
             public string path;
-            public string kind; // added | modified | deleted | renamed
+            public string kind; // added | modified | deleted | renamed | untracked(추적 해제: 파일은 남기고 Git에서만 뺌)
         }
 
         [Serializable]
@@ -77,6 +80,9 @@ namespace TeamElarin.GitSync.Editor
             public int pendingCommits;
             public string remote;
             public string branch;
+            public string currentBranch;
+            public string operation;
+            public bool firstPush;        // 원격에 브랜치가 없어 묶지 않고 기록 그대로 올림
             public bool bundleCommit;
         }
 
@@ -154,8 +160,8 @@ namespace TeamElarin.GitSync.Editor
         [MenuItem(MENU_PATH, false, 0)]
         public static void Open()
         {
-            // 필수 프로그램(git·Python·도구·저장소)이 빠져 있으면 환경 확인 창을 먼저 띄움
-            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+            // 커밋에 필요한 것(git·Python·도구·저장소)이 빠져 있으면 환경 확인 창을 먼저 띄움. 원격이 없어도 열림
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow(false))
                 return;
 
             GitCommitWindow window = GetWindow<GitCommitWindow>("Git 커밋");
@@ -186,7 +192,7 @@ namespace TeamElarin.GitSync.Editor
 
                 if (isBusy)
                     GUILayout.Label(GetBusyLabel(), GUILayout.Width(70f));
-                if (GUILayout.Button("환경 확인", EditorStyles.toolbarButton, GUILayout.Width(64f)))
+                if (GUILayout.Button("패널", EditorStyles.toolbarButton, GUILayout.Width(40f)))
                     GitSyncEnvironmentWindow.Open();
                 if (GUILayout.Button("설정", EditorStyles.toolbarButton, GUILayout.Width(40f)))
                     GitSyncSettingsProvider.Open();
@@ -198,7 +204,15 @@ namespace TeamElarin.GitSync.Editor
             if (_status == null)
                 return;
 
-            EditorGUILayout.LabelField("저장소", _status.repo + "  (" + _status.branch + ")");
+            string current = string.IsNullOrEmpty(_status.currentBranch) ? "브랜치 아님" : _status.currentBranch;
+            EditorGUILayout.LabelField("저장소", _status.repo + "  (지금 " + current + " · 푸시 " + _status.branch + ")");
+            if (!string.IsNullOrEmpty(_status.operation))
+                EditorGUILayout.HelpBox($"{_status.operation}이(가) 아직 끝나지 않았습니다. 마무리하거나(--continue) 취소(--abort)한 뒤 커밋·푸시하세요.", MessageType.Error);
+            if (!IsOnPushBranch(_status.currentBranch, _status.branch))
+                EditorGUILayout.HelpBox(GetBranchWarning(_status.currentBranch, _status.branch), MessageType.Warning);
+            if (_status.removedPackages != null && _status.removedPackages.Length > 0)
+                EditorGUILayout.HelpBox("Packages/manifest.json에서 패키지가 빠집니다: " + string.Join(", ", _status.removedPackages)
+                                        + "\n의도한 것이 아니면 manifest.json을 커밋하지 마세요.", MessageType.Warning);
             if (_status.behind > 0)
                 EditorGUILayout.HelpBox($"원격에 이 PC에 없는 커밋이 {_status.behind}개 있습니다. 푸시 전에 먼저 받아서(Pull) 합치세요.", MessageType.Warning);
 
@@ -282,7 +296,8 @@ namespace TeamElarin.GitSync.Editor
             _title = EditorGUILayout.TextField(_title);
             EditorGUILayout.LabelField(GetTitleHint(), EditorStyles.miniLabel);
 
-            bool canCommit = !isBusy && _status != null && _selectedPaths.Count > 0
+            bool canCommit = !isBusy && _status != null && _selectedPaths.Count > 0 && string.IsNullOrEmpty(_status.operation)
+                             && !string.IsNullOrEmpty(_status.currentBranch)
                              && !EditorApplication.isPlayingOrWillChangePlaymode && !EditorApplication.isCompiling
                              && GetConsoleErrorCount() == 0;
 
@@ -310,9 +325,14 @@ namespace TeamElarin.GitSync.Editor
             if (_pushStatus.isDue)
                 EditorGUILayout.LabelField("푸시할 차례입니다. 지금 작업을 끝낸 뒤 푸시하세요.", _dueStyle);
             EditorGUILayout.LabelField($"올릴 커밋 {_pushStatus.pendingCommits}개 → {_pushStatus.remote}/{_pushStatus.branch}"
-                                       + (_pushStatus.bundleCommit ? " (묶음 커밋 1개로 합쳐 올림)" : string.Empty)
+                                       + GetBundleLabel()
                                        + (string.IsNullOrEmpty(_pushStatus.lastPush) ? string.Empty : " · 마지막 푸시 " + FormatTime(_pushStatus.lastPush)),
                                        EditorStyles.miniLabel);
+
+            bool isOnPushBranch = IsOnPushBranch(_pushStatus.currentBranch, _pushStatus.branch);
+            bool hasOperation = !string.IsNullOrEmpty(_pushStatus.operation);
+            if (!isOnPushBranch)
+                EditorGUILayout.LabelField($"지금 브랜치가 {_pushStatus.branch}가 아니라 푸시할 수 없습니다.", _dueStyle);
 
             using (new EditorGUILayout.HorizontalScope())
             using (new EditorGUI.DisabledScope(isBusy))
@@ -320,12 +340,12 @@ namespace TeamElarin.GitSync.Editor
                 using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(_pushStatus.timerStart)))
                 {
                     if (GUILayout.Button("카운트 시작", GUILayout.Height(24f)))
-                        RunUserTask(TaskKind.PushStart, GitSyncTools.PUSH_SCRIPT, "--start");
+                        RunUserTask(TaskKind.PushStart, GitSyncTools.PUSH_SCRIPT, "--start", false);
                 }
-                using (new EditorGUI.DisabledScope(_pushStatus.pendingCommits == 0))
+                using (new EditorGUI.DisabledScope(_pushStatus.pendingCommits == 0 || !isOnPushBranch || hasOperation))
                 {
                     if (GUILayout.Button("푸시…", GUILayout.Height(24f)))
-                        RunUserTask(TaskKind.PushPreview, GitSyncTools.PUSH_SCRIPT, "--dry-run");
+                        RunUserTask(TaskKind.PushPreview, GitSyncTools.PUSH_SCRIPT, "--dry-run", true);
                 }
             }
         }
@@ -362,6 +382,26 @@ namespace TeamElarin.GitSync.Editor
                 case TaskKind.Push: return "푸시 중…";
                 default: return "읽는 중…";
             }
+        }
+
+        // 푸시 방식 안내: 첫 푸시(원격에 브랜치 없음)는 묶지 않고 기록 그대로 올림
+        private string GetBundleLabel()
+        {
+            if (!_pushStatus.bundleCommit)
+                return string.Empty;
+            return _pushStatus.firstPush ? " (첫 푸시: 묶지 않고 기록 그대로 올림)" : " (묶음 커밋 1개로 합쳐 올림)";
+        }
+
+        private static bool IsOnPushBranch(string currentBranch, string pushBranch)
+        {
+            return !string.IsNullOrEmpty(currentBranch) && currentBranch == pushBranch;
+        }
+
+        private static string GetBranchWarning(string currentBranch, string pushBranch)
+        {
+            return string.IsNullOrEmpty(currentBranch)
+                ? $"지금 브랜치가 아닌 커밋(detached HEAD)에 있어 커밋·푸시를 막습니다 (여기서 만든 커밋은 브랜치를 옮기면 어디에도 속하지 않음). git checkout {pushBranch} 로 돌아오거나 git checkout -b 새이름 으로 브랜치를 만드세요."
+                : $"지금 브랜치 '{currentBranch}'은(는) 설정의 푸시 브랜치 '{pushBranch}'와 다릅니다. 커밋은 지금 브랜치에 되고, 푸시는 {pushBranch}로 옮긴 뒤에만 할 수 있습니다.";
         }
 
         // 직접 쓴 제목이 언제 쓰이는지 안내 (작업 기록 → 직접 쓴 제목 → 자동 요약 → 규칙 요약)
@@ -444,6 +484,7 @@ namespace TeamElarin.GitSync.Editor
                 case "added": return "추가";
                 case "deleted": return "삭제";
                 case "renamed": return "이동";
+                case "untracked": return "해제";
                 default: return "수정";
             }
         }
@@ -453,7 +494,8 @@ namespace TeamElarin.GitSync.Editor
             switch (kind)
             {
                 case "added": return _addedStyle;
-                case "deleted": return _deletedStyle;
+                case "deleted":
+                case "untracked": return _deletedStyle;
                 default: return _modifiedStyle;
             }
         }
@@ -468,10 +510,10 @@ namespace TeamElarin.GitSync.Editor
             _runningTask = GitSyncTools.RunAsync(script, arguments);
         }
 
-        // 사용자가 누른 커밋·푸시 동작: 필수 환경이 빠져 있으면 실행하지 않고 환경 확인 창을 띄움
-        private void RunUserTask(TaskKind kind, string script, string arguments)
+        // 사용자가 누른 커밋·푸시 동작: 필요한 환경이 빠져 있으면 실행하지 않고 환경 확인 창을 띄움
+        private void RunUserTask(TaskKind kind, string script, string arguments, bool isPush)
         {
-            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow(isPush))
                 return;
 
             RunTask(kind, script, arguments);
@@ -554,7 +596,7 @@ namespace TeamElarin.GitSync.Editor
 
         private void Commit()
         {
-            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow())
+            if (!GitSyncEnvironmentCheck.EnsureReadyOrShowWindow(false))
                 return;
 
             List<string> dirtyScenes = GetDirtySceneNames();
@@ -568,6 +610,14 @@ namespace TeamElarin.GitSync.Editor
                 if (choice == 0)
                     EditorSceneManager.SaveOpenScenes();
             }
+
+            // manifest.json에서 패키지가 빠지는 변경은 다른 PC에서 받아 온 실수일 수 있으니 한 번 더 확인
+            string manifestPath = (string.IsNullOrEmpty(_status.projectPrefix) ? string.Empty : _status.projectPrefix + "/") + "Packages/manifest.json";
+            if (_selectedPaths.Contains(manifestPath) && _status.removedPackages != null && _status.removedPackages.Length > 0
+                && !EditorUtility.DisplayDialog("패키지가 빠집니다",
+                    "Packages/manifest.json에서 다음 패키지가 빠집니다:\n- " + string.Join("\n- ", _status.removedPackages)
+                    + "\n\n의도한 것이 아니면 '취소'를 누르고 manifest.json 체크를 해제하세요.", "그대로 커밋", "취소"))
+                return;
 
             if (!EditorUtility.DisplayDialog("로컬 커밋", $"선택한 {_selectedPaths.Count}개 파일을 로컬 커밋합니다.\n푸시는 하지 않습니다.", "커밋", "취소"))
                 return;
