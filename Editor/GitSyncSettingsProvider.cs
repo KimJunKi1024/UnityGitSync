@@ -86,12 +86,12 @@ namespace TeamElarin.GitSync.Editor
             EditorGUILayout.LabelField("프로젝트 공용 설정 (ProjectSettings/GitSyncSettings.json, Git에 올라감)", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
 
-            _settings.Repo = EditorGUILayout.TextField(new GUIContent("저장소 폴더", "비우면 프로젝트 폴더가 들어 있는 Git 저장소. 상대 경로는 프로젝트 폴더 기준"), _settings.Repo);
+            _settings.Repo = GitSyncSettings.CleanPath(EditorGUILayout.TextField(new GUIContent("저장소 폴더", "비우면 프로젝트 폴더가 들어 있는 Git 저장소. 상대 경로는 프로젝트 폴더 기준"), _settings.Repo));
             _settings.Remote = EditorGUILayout.TextField(new GUIContent("원격 이름", "푸시할 원격 (보통 origin)"), _settings.Remote);
             _settings.Branch = EditorGUILayout.TextField(new GUIContent("브랜치", "푸시할 브랜치 (보통 main)"), _settings.Branch);
             _settings.PushIntervalMinutes = EditorGUILayout.IntField(new GUIContent("푸시 주기 (분)", "다음 작업을 시작한 순간부터 이 시간이 지나면 푸시 차례"), _settings.PushIntervalMinutes);
             _settings.BundleCommit = EditorGUILayout.Toggle(new GUIContent("묶음 커밋 만들기", "마지막 푸시 뒤의 개별 커밋을 작업 내용·파일 수를 합산한 묶음 커밋 1개로 합쳐 그것만 올림 (개별 커밋은 로컬에도 남지 않음)"), _settings.BundleCommit);
-            _settings.WorkLogEntriesDir = EditorGUILayout.TextField(new GUIContent("작업 기록 폴더", "entryNNN.md가 있는 폴더 (프로젝트 폴더 기준). 비우면 작업 기록 연동 끔"), _settings.WorkLogEntriesDir);
+            _settings.WorkLogEntriesDir = GitSyncSettings.CleanPath(EditorGUILayout.TextField(new GUIContent("작업 기록 폴더", "entryNNN.md가 있는 폴더 (프로젝트 폴더 기준). 비우면 작업 기록 연동 끔"), _settings.WorkLogEntriesDir));
 
             int summaryIndex = _settings.AutoSummary == GitSyncSettings.AUTO_SUMMARY_CLAUDE ? 1 : 0;
             summaryIndex = EditorGUILayout.Popup(new GUIContent("작업 내용 자동 요약", "작업 기록·직접 쓴 제목이 없을 때 쓰는 방법. claude가 30초 안에 답하지 않으면 파일 이름 요약"), summaryIndex, AUTO_SUMMARY_LABELS);

@@ -9,7 +9,7 @@ namespace TeamElarin.GitSync.Editor
     /// 프로젝트 공용 설정 (<c>ProjectSettings/GitSyncSettings.json</c>, Git에 올려 팀이 같이 씀).<br/>
     /// 파이썬 도구(<c>Tools~/gitsync_common.py</c>)도 같은 파일·같은 키를 읽습니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-11 (설정 파일 위치를 프로젝트 루트에서 ProjectSettings로)</remarks>
+    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-11 (설정 파일 위치를 프로젝트 루트에서 ProjectSettings로)<br/>수정일: 2026-11-12 (경로 값의 따옴표 제거)</remarks>
     public class GitSyncSettings
     {
         #region [ 공개 프로퍼티 (Public Properties) ]
@@ -89,12 +89,12 @@ namespace TeamElarin.GitSync.Editor
                 if (data == null)
                     return settings;
 
-                settings.Repo = data.repo ?? string.Empty;
+                settings.Repo = CleanPath(data.repo);
                 settings.Branch = string.IsNullOrWhiteSpace(data.branch) ? "main" : data.branch;
                 settings.Remote = string.IsNullOrWhiteSpace(data.remote) ? "origin" : data.remote;
                 settings.PushIntervalMinutes = data.pushIntervalMinutes > 0 ? data.pushIntervalMinutes : 60;
                 settings.BundleCommit = data.bundleCommit;
-                settings.WorkLogEntriesDir = data.workLogEntriesDir ?? string.Empty;
+                settings.WorkLogEntriesDir = CleanPath(data.workLogEntriesDir);
                 settings.AutoSummary = string.IsNullOrWhiteSpace(data.autoSummary) ? AUTO_SUMMARY_OFF : data.autoSummary;
             }
             catch (Exception e)
@@ -111,15 +111,23 @@ namespace TeamElarin.GitSync.Editor
         {
             var data = new FileData
             {
-                repo = Repo.Trim(),
+                repo = CleanPath(Repo),
                 branch = Branch.Trim(),
                 remote = Remote.Trim(),
                 pushIntervalMinutes = Mathf.Max(1, PushIntervalMinutes),
                 bundleCommit = BundleCommit,
-                workLogEntriesDir = WorkLogEntriesDir.Trim(),
+                workLogEntriesDir = CleanPath(WorkLogEntriesDir),
                 autoSummary = AutoSummary,
             };
             File.WriteAllText(FilePath, JsonUtility.ToJson(data, true) + "\n", new UTF8Encoding(false));
+        }
+
+        /// <summary>
+        /// 경로 값을 정리합니다: 앞뒤 공백과 따옴표를 뺍니다 (탐색기에서 '경로로 복사'한 값은 따옴표가 붙어 옴).
+        /// </summary>
+        public static string CleanPath(string value)
+        {
+            return string.IsNullOrEmpty(value) ? string.Empty : value.Trim().Trim('"', '\'').Trim();
         }
 
         #endregion

@@ -59,6 +59,9 @@ def load_settings(project):
         for key in DEFAULT_SETTINGS:
             if key in data and data[key] is not None:
                 settings[key] = data[key]
+    # 경로 값은 앞뒤 공백·따옴표를 뺌 (탐색기에서 '경로로 복사'한 값은 따옴표가 붙어 옴). C# GitSyncSettings.CleanPath와 같은 규칙
+    for key in ("repo", "workLogEntriesDir"):
+        settings[key] = str(settings.get(key) or "").strip().strip("\"'").strip()
     return settings
 
 

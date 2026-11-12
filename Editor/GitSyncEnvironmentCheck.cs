@@ -298,7 +298,7 @@ namespace TeamElarin.GitSync.Editor
 
             if (!string.IsNullOrWhiteSpace(settings.Repo))
             {
-                string configured = settings.Repo.Trim();
+                string configured = GitSyncSettings.CleanPath(settings.Repo);
                 string path;
                 try
                 {
