@@ -112,7 +112,7 @@ def decide_work_items(project, repo, settings, title, name_status, diff_text, al
     """(작업 내용 목록, 출처) — 작업 기록 → 직접 쓴 제목 → 자동 요약 → 규칙 요약."""
     entries = new_entries(project, repo, settings)
     if entries:
-        return [f"{n}. {t}" for n, t in entries], "작업 기록"
+        return list(dict.fromkeys(t for _, t in entries)), "작업 기록"
     if title and title.strip():
         return [title.strip()], "직접 쓴 제목"
     if allow_auto and str(settings.get("autoSummary", "off")).lower() == "claude":

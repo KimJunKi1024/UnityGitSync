@@ -16,7 +16,7 @@ namespace TeamElarin.GitSync.Editor
     /// 저장소의 바뀐 파일을 보여 주고 고른 파일만 로컬 커밋합니다. 아래쪽에서 푸시 카운트를 보고 푸시합니다.<br/>
     /// 실제 일은 패키지의 파이썬 도구(<c>gitsync_commit.py</c>, <c>gitsync_push.py</c>)가 합니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)<br/>수정일: 2026-11-12 (열기·커밋·푸시 전에 환경 확인)<br/>수정일: 2026-11-12 (지금 브랜치·진행 중 작업·첫 푸시 표시, 브랜치가 다르면 푸시 막음)<br/>수정일: 2026-11-12 (추적 해제 표시, 패키지 빠짐 경고·확인)</remarks>
+    /// <remarks>작성일: 2026-11-11 (엘라린 GitCommitWindow를 패키지용으로 일반화, 푸시 기능 추가)<br/>수정일: 2026-11-12 (열기·커밋·푸시 전에 환경 확인)<br/>수정일: 2026-11-12 (지금 브랜치·진행 중 작업·첫 푸시 표시, 브랜치가 다르면 푸시 막음)<br/>수정일: 2026-11-12 (추적 해제 표시, 패키지 빠짐 경고·확인)<br/>수정일: 2026-11-15 (개인·PC별 설정 파일 자동 체크 제외 및 [제외] 표시)</remarks>
     public class GitCommitWindow : EditorWindow
     {
         #region [ 상수 (Constants) ]
@@ -104,6 +104,7 @@ namespace TeamElarin.GitSync.Editor
         private GUIStyle _modifiedStyle;
         private GUIStyle _deletedStyle;
         private GUIStyle _dueStyle;
+        private GUIStyle _excludedStyle;
 
         #endregion
 
@@ -220,7 +221,7 @@ namespace TeamElarin.GitSync.Editor
             {
                 var sb = new StringBuilder("작업 내용으로 들어갈 새 작업 기록:");
                 foreach (EntryData entry in _status.entries)
-                    sb.Append("\n- ").Append(entry.number).Append(". ").Append(entry.title);
+                    sb.Append("\n- ").Append(entry.title);
                 EditorGUILayout.HelpBox(sb.ToString(), MessageType.None);
             }
         }
@@ -260,7 +261,10 @@ namespace TeamElarin.GitSync.Editor
                 return;
             }
 
-            EditorGUILayout.LabelField($"바뀐 파일 {_status.files.Length}개 · 선택 {_selectedPaths.Count}개", EditorStyles.boldLabel);
+            string prefix = _status.projectPrefix ?? string.Empty;
+            int excludedCount = CountExcludedFiles(prefix);
+            string excludedSummary = excludedCount > 0 ? $" (개인 설정 자동 제외 {excludedCount}개)" : string.Empty;
+            EditorGUILayout.LabelField($"바뀐 파일 {_status.files.Length}개 · 선택 {_selectedPaths.Count}개{excludedSummary}", EditorStyles.boldLabel);
             if (_status.files.Length == 0)
                 EditorGUILayout.HelpBox("커밋하지 않은 변경이 없습니다.", MessageType.Info);
 
@@ -274,6 +278,7 @@ namespace TeamElarin.GitSync.Editor
                     if (!IsVisible(file.path))
                         continue;
 
+                    bool isExcluded = GitSyncPrefs.IsAutoUncheckedPath(file.path, prefix);
                     using (new EditorGUILayout.HorizontalScope())
                     {
                         bool isSelected = _selectedPaths.Contains(file.path);
@@ -285,6 +290,9 @@ namespace TeamElarin.GitSync.Editor
 
                         if (GUILayout.Button(file.path, EditorStyles.label))
                             PingAsset(file.path);
+
+                        if (isExcluded)
+                            GUILayout.Label(new GUIContent("[제외]", "개인·PC별 설정으로 자동 체크에서 제외됩니다. 필요할 때만 직접 클릭해 선택하세요."), _excludedStyle, GUILayout.ExpandWidth(false));
                     }
                 }
             }
@@ -371,6 +379,7 @@ namespace TeamElarin.GitSync.Editor
             _modifiedStyle = new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = new Color(0.9f, 0.7f, 0.2f) } };
             _deletedStyle = new GUIStyle(EditorStyles.miniBoldLabel) { normal = { textColor = new Color(0.9f, 0.35f, 0.35f) } };
             _dueStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.95f, 0.6f, 0.2f) } };
+            _excludedStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
         }
 
         private string GetBusyLabel()
@@ -428,11 +437,26 @@ namespace TeamElarin.GitSync.Editor
             if (_status == null || _status.files == null)
                 return;
 
+            string prefix = _status.projectPrefix ?? string.Empty;
             foreach (FileData file in _status.files)
             {
-                if (IsVisible(file.path))
-                    SetSelected(file.path, isSelected);
+                if (!IsVisible(file.path))
+                    continue;
+                if (isSelected && GitSyncPrefs.IsAutoUncheckedPath(file.path, prefix))
+                    continue;
+                SetSelected(file.path, isSelected);
             }
+        }
+
+        private int CountExcludedFiles(string prefix)
+        {
+            int count = 0;
+            foreach (FileData file in _status.files)
+            {
+                if (GitSyncPrefs.IsAutoUncheckedPath(file.path, prefix))
+                    count++;
+            }
+            return count;
         }
 
         // 파일과 짝 .meta를 함께 고르거나 뺌 (한쪽만 올라가면 다른 PC에서 GUID가 어긋남)
@@ -553,12 +577,16 @@ namespace TeamElarin.GitSync.Editor
                 if (_status.files == null)
                     _status.files = new FileData[0];
 
-                // 처음 열 때는 모두 선택, 다시 읽을 때는 이전 선택을 유지하고 새로 생긴 파일만 선택
+                // 처음 열 때는 자동 제외 대상을 빼고 선택, 다시 읽을 때는 이전 선택을 유지하고 새로 생긴 일반 파일만 선택
+                string prefix = _status.projectPrefix ?? string.Empty;
                 var currentPaths = new HashSet<string>();
                 _selectedPaths.Clear();
                 foreach (FileData file in _status.files)
                 {
-                    if (isFirstLoad || previous.Contains(file.path) || !_knownPaths.Contains(file.path))
+                    bool isExcluded = GitSyncPrefs.IsAutoUncheckedPath(file.path, prefix);
+                    bool shouldSelect = previous.Contains(file.path)
+                                        || (!isExcluded && (isFirstLoad || !_knownPaths.Contains(file.path)));
+                    if (shouldSelect)
                         _selectedPaths.Add(file.path);
                     currentPaths.Add(file.path);
                 }

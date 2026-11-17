@@ -9,7 +9,7 @@ namespace TeamElarin.GitSync.Editor
     /// 설정 화면 (Edit → Project Settings → Git Sync, 또는 Tools → Git → 설정).<br/>
     /// 위쪽은 프로젝트 공용 설정(<c>ProjectSettings/GitSyncSettings.json</c>), 아래쪽은 이 PC만의 설정(EditorPrefs)입니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-12 (환경 확인 창 열기 버튼)<br/>수정일: 2026-11-12 (Python 경로 자동 탐색 안내, 저장소 폴더 절대 경로 경고, 자동 요약 안내)</remarks>
+    /// <remarks>작성일: 2026-11-11<br/>수정일: 2026-11-12 (환경 확인 창 열기 버튼)<br/>수정일: 2026-11-12 (Python 경로 자동 탐색 안내, 저장소 폴더 절대 경로 경고, 자동 요약 안내)<br/>수정일: 2026-11-15 (자동 체크 제외 경로 편집 및 기본값 복원 UI 추가)</remarks>
     public class GitSyncSettingsProvider : SettingsProvider
     {
         #region [ 상수 (Constants) ]
@@ -146,6 +146,8 @@ namespace TeamElarin.GitSync.Editor
             if (claude != GitSyncPrefs.ClaudePath)
                 GitSyncPrefs.ClaudePath = claude;
 
+            DrawUncheckedPathsSetting();
+
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.PrefixLabel(" ");
@@ -156,6 +158,37 @@ namespace TeamElarin.GitSync.Editor
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("명령줄 도구 위치", EditorStyles.boldLabel);
             EditorGUILayout.SelectableLabel("Library/GitSync/Tools/  (에디터를 켤 때마다 최신 도구로 복사됨)", EditorStyles.wordWrappedLabel);
+        }
+
+        private static void DrawUncheckedPathsSetting()
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.PrefixLabel(new GUIContent(
+                    "자동 체크 제외 경로",
+                    "커밋 창을 열거나 '모두 선택'을 누를 때 자동으로 체크하지 않을 경로입니다(한 줄에 하나, 프로젝트 기준 상대 경로). 폴더는 끝에 / 를 붙입니다."));
+                using (new EditorGUILayout.VerticalScope())
+                {
+                    string raw = GitSyncPrefs.UncheckedPathsText;
+                    string edited = EditorGUILayout.TextArea(raw, GUILayout.MinHeight(56f));
+                    if (edited != raw)
+                        GitSyncPrefs.UncheckedPathsText = edited;
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("한 줄에 하나씩 입력 · 폴더는 끝에 / (직접 클릭하면 커밋 가능)", EditorStyles.miniLabel);
+                        GUILayout.FlexibleSpace();
+                        using (new EditorGUI.DisabledScope(GitSyncPrefs.IsDefaultUncheckedPaths))
+                        {
+                            if (GUILayout.Button("기본값 복원", EditorStyles.miniButton, GUILayout.Width(80f)))
+                            {
+                                GitSyncPrefs.ResetUncheckedPaths();
+                                GUI.FocusControl(null);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         #endregion

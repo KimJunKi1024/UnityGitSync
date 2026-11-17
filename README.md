@@ -50,11 +50,12 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 | 작업 내용 자동 요약 | 〃 | 끔 | `claude`로 바꾸면 바뀐 내용을 claude가 요약 |
 | Python 경로 | EditorPrefs (PC별) | 비움(자동) | 비우면 차례로 실행해 3.8 이상을 찾음 (Windows: `python` → `py` → `python3`, macOS·Linux: `python3` → `python` → Homebrew 경로) |
 | claude 경로 | EditorPrefs (PC별) | 비움(PATH) | Unity가 PATH를 못 볼 때 `claude.exe` 전체 경로 |
+| 자동 체크 제외 경로 | EditorPrefs (PC별) | `UserSettings/`, `ProjectSettings/Packages/`, `ProjectSettings/GitSyncSettings.json` | 커밋 창을 열거나 `모두 선택`을 누를 때 자동으로 체크하지 않을 경로(한 줄에 하나). 목록에 `[제외]`로 표시되며 직접 클릭하면 커밋 가능 |
 
 `ProjectSettings/GitSyncSettings.json`에 저장되며 **Git에 올려 팀이 같이 씁니다.**
 
 ### 작업 내용을 정하는 순서
-1. 작업 기록 폴더에 저장소에 아직 없는 새 항목이 있으면 그 제목 (`- 334. 제목`)
+1. 작업 기록 폴더에 저장소에 아직 없는 새 항목이 있으면 그 제목 (`- 제목`, 번호 제외)
 2. 커밋 창(또는 `--title`)에 직접 쓴 제목
 3. 자동 요약이 켜져 있으면 `claude -p`의 한두 줄 요약 (30초 안에 못 받거나 실패하면 4로)
 4. 파일 종류·이름 요약 (스크립트·씬·프리팹·이미지·기타)
@@ -71,6 +72,7 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 
 **Tools → Git → 커밋 창**
 - 커밋하지 않은 변경을 파일별로 보여 줍니다. 체크한 파일만 로컬 커밋합니다(짝 `.meta`는 함께 체크됨).
+- `UserSettings/`, `ProjectSettings/Packages/`, `ProjectSettings/GitSyncSettings.json` 등 PC·유저별 설정 파일은 목록에 `[제외]`로 표시되고 처음 열기·새로 감지·`모두 선택`에서 자동으로 체크되지 않습니다(필요할 때만 직접 클릭해 커밋, 설정에서 경로 편집 가능).
 - 플레이 모드·컴파일 중·콘솔 에러가 있으면 커밋 버튼이 꺼집니다. 저장하지 않은 씬이 있으면 저장할지 묻습니다.
 - 원격이 앞서 있으면 경고를 보여 줍니다.
 - `git rm --cached`로 추적만 해제한 파일은 **해제**로 한 줄에 보이고, 체크하면 파일은 PC에 남긴 채 Git에서만 빼는 커밋이 됩니다(`.gitignore`에 걸린 파일도 됨).
