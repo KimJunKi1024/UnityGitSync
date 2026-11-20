@@ -169,13 +169,21 @@ def run_quiet(args, timeout):
         return None
 
 
-def run_quiet_with_error(args, timeout):
+def run_quiet_with_error(args, timeout, allow_login=False):
     """run_quiet과 같지만 표준 오류를 임시 파일로 받아 (종료 코드, 오류 내용)을 돌려줍니다. 시간 초과면 코드는 None.
 
     파이프 대신 파일로 받으므로 하위 프로세스가 남아 있어도 기다리다 멈추지 않습니다.
+    allow_login이면 1.0.1처럼 입력을 물려주고 GIT_TERMINAL_PROMPT를 빼서, 자격 증명 관리자가 저장된 로그인을 쓰거나
+    로그인 창을 띄울 수 있게 합니다 (Unity에서 실행하면 입력을 끊은 상태로는 비공개 저장소 로그인을 못 받는 경우가 있음).
     """
+    env = None
+    stdin = subprocess.DEVNULL
+    if allow_login:
+        env = dict(os.environ)
+        env.pop("GIT_TERMINAL_PROMPT", None)
+        stdin = None
     with tempfile.TemporaryFile() as err:
-        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err)
+        proc = subprocess.Popen(args, stdin=stdin, stdout=subprocess.DEVNULL, stderr=err, env=env)
         try:
             code = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

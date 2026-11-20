@@ -32,6 +32,7 @@ import gitsync_common as common
 
 FETCH_TIMEOUT_SECONDS = 60
 FETCH_RETRY_DELAY_SECONDS = 3
+FETCH_LOGIN_TIMEOUT_SECONDS = 120  # 다시 시도할 때는 GitHub 로그인 창이 뜰 수 있어 넉넉히
 LOG_PREVIEW_LIMIT = 20
 
 
@@ -110,22 +111,26 @@ def fetch_remote(repo, remote):
     """원격 정보를 받아 옵니다. 실패하면 잠시 뒤 한 번 더 시도하고, 그래도 실패·시간 초과면 원인과 함께 멈춤.
 
     GitHub Desktop이 백그라운드에서 같은 순간에 fetch하면 잠금 충돌로 실패할 수 있어 한 번 더 시도합니다.
+    두 번째는 1.0.1처럼 로그인을 허용해 실행합니다 (비공개 저장소에서 Unity가 실행하면 첫 방식으로는 로그인을 못 받는 경우).
     """
     args = ["git", "-C", repo, "fetch", "-q", remote]
     code, error = common.run_quiet_with_error(args, FETCH_TIMEOUT_SECONDS)
+    first = (code, error)
     if code not in (0, None):
         time.sleep(FETCH_RETRY_DELAY_SECONDS)
-        code, error = common.run_quiet_with_error(args, FETCH_TIMEOUT_SECONDS)
+        code, error = common.run_quiet_with_error(args, FETCH_LOGIN_TIMEOUT_SECONDS, allow_login=True)
+        if code not in (0, None) and not error:
+            error = first[1]
     if code is None:
-        common.fail(f"원격({remote}) 확인이 {FETCH_TIMEOUT_SECONDS}초 안에 끝나지 않았습니다. 푸시하지 않습니다.\n"
-                    "→ 인터넷 연결과 GitHub Desktop 로그인을 확인한 뒤 다시 푸시하세요.")
+        common.fail(f"원격({remote}) 확인이 끝나지 않았습니다(GitHub 로그인 창이 떠 있거나 인터넷이 느림). 푸시하지 않습니다.\n"
+                    "→ 로그인 창이 있으면 로그인하고, 인터넷 연결과 GitHub Desktop 로그인을 확인한 뒤 다시 푸시하세요.")
     if code != 0:
         hint = common.explain_remote_error(remote, error)
         lines = [line.strip() for line in error.splitlines() if line.strip()]
         detail = " / ".join(lines[-3:]) if lines else "(git이 오류 내용을 남기지 않았습니다)"
         common.fail(f"원격({remote})을 확인하지 못했습니다. 푸시하지 않습니다.\n"
                     + (f"→ {hint}\n" if hint else "→ 잠시 뒤 다시 푸시해 보고, 같으면 아래 git 오류를 알려 주세요.\n")
-                    + f"git 오류: {detail}")
+                    + f"git 오류(종료 코드 첫 시도 {first[0]}, 다시 시도 {code}): {detail}")
 
 
 def bundle_message(repo, settings):

@@ -43,10 +43,12 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 ### 처음 쓰는 팀원이라면 (개발자가 아니어도)
 위쪽 '프로젝트 공용 설정'은 프로젝트를 만든 사람이 한 번 정해 두면 Git으로 모두에게 함께 내려옵니다. **팀원은 아무것도 바꾸지 않아도 됩니다.** 각 칸 아래의 `이 PC에서 확인` 줄이 모두 ✔이면 그대로 두세요.
 
-| 칸 | 무엇인가 | 무엇을 적나 |
+아래 `MyGame`은 예시 프로젝트 이름입니다. 자기 프로젝트 이름으로 바꿔 읽으세요.
+
+| 칸 | 무엇인가 | 무엇을 적나 (예: MyGame) |
 |---|---|---|
-| 저장소 폴더 | 작업 파일이 들어 있는 Git 폴더. GitHub Desktop의 File → Clone repository로 받은 폴더입니다. | **비워 둡니다.** 비우면 이 Unity 프로젝트가 들어 있는 폴더를 자동으로 찾습니다. |
-| 원격 이름 | GitHub에 있는 팀 저장소를 이 PC에서 부르는 별명입니다. | **`origin`.** GitHub Desktop으로 Clone하면 항상 origin입니다. |
+| 저장소 폴더 | 작업 파일이 들어 있는 Git 폴더. GitHub Desktop의 File → Clone repository로 받은 폴더입니다(예: `C:\GitHub\MyGame`). | **비워 둡니다.** 비우면 이 Unity 프로젝트가 들어 있는 폴더(`C:\GitHub\MyGame`)를 자동으로 찾습니다. |
+| 원격 이름 | GitHub에 있는 팀 저장소(예: `https://github.com/<팀 계정>/MyGame`)를 이 PC에서 부르는 별명입니다. | **`origin`.** GitHub Desktop으로 Clone하면 항상 origin입니다. |
 | 브랜치 | 팀이 함께 작업을 올리는 줄기 이름입니다. | 팀이 정한 이름(보통 **`main`**). GitHub Desktop 위쪽 **Current branch**가 이 이름이어야 푸시됩니다. |
 
 `✖`가 보이면 그 줄의 안내대로 하면 됩니다. 자주 나오는 경우:
