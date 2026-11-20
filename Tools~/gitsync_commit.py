@@ -31,6 +31,7 @@ import gitsync_common as common
 
 ENTRY_FILE_RE = re.compile(r"entry(\d+)\.md$")
 CLAUDE_TIMEOUT_SECONDS = 30
+REMOTE_CHECK_TIMEOUT_SECONDS = 30   # 커밋 창의 '원격이 앞서 있음' 확인 (실패해도 커밋은 막지 않음)
 DIFF_LIMIT_CHARS = 6000
 SUMMARY_MAX_LINES = 2
 SUMMARY_MAX_CHARS = 100
@@ -219,9 +220,13 @@ def check_staged_outside(repo, paths):
 # ───────── 명령 ─────────
 
 def remote_behind(repo, settings):
-    """원격이 몇 커밋 앞서 있는지 (확인 실패면 -1)."""
+    """원격이 몇 커밋 앞서 있는지 (확인 실패면 -1).
+
+    원격 접속은 푸시와 같은 common.run_network (Unity에서도 비공개 저장소 로그인을 받도록 로그인 허용, 제한 시간, 한 번 더 시도).
+    """
     remote, branch = settings["remote"], settings["branch"]
-    if common.run_quiet(["git", "-C", repo, "fetch", "-q", remote], 20) != 0:
+    code, _ = common.run_network(["git", "-C", repo, "fetch", "-q", remote], REMOTE_CHECK_TIMEOUT_SECONDS)
+    if code != 0:
         return -1
     ref = f"refs/remotes/{remote}/{branch}"
     if subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", ref], capture_output=True).returncode != 0:

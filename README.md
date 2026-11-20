@@ -118,9 +118,14 @@ python Library/GitSync/Tools/gitsync_push.py --start      # 작업 시작 때 (�
 python Library/GitSync/Tools/gitsync_push.py --status     # 지난 시간·푸시 차례
 python Library/GitSync/Tools/gitsync_push.py --dry-run    # 묶음 커밋 설명 미리보기
 python Library/GitSync/Tools/gitsync_push.py              # 개별 커밋을 묶음 1개로 합쳐 푸시 → 카운트 멈춤
+python Library/GitSync/Tools/gitsync_push.py --backups    # 묶기 전 백업(개별 커밋) 목록
+python Library/GitSync/Tools/gitsync_push.py --restore-backup 20261120-131606   # 백업을 gitsync-backup-… 브랜치로 꺼냄
 ```
 
 푸시는 묶음 커밋을 먼저 원격에 올리고, 성공한 뒤에만 로컬 브랜치를 그 커밋으로 옮깁니다(`git reset --soft`). 푸시가 실패하면 로컬은 그대로이고, 커밋하지 않은 변경은 어느 경우에도 건드리지 않습니다.
+푸시 응답이 오류·시간 초과(10분)여도 원격을 다시 확인해 실제로 올라가 있으면 성공으로 처리합니다.
+
+**묶기 전 백업**: 로컬 브랜치를 묶음 커밋으로 옮기기 전에, 묶기 전 개별 커밋을 `refs/gitsync/backups/날짜-시각`에 남깁니다(최근 30개). 브랜치 목록·GitHub Desktop·원격에는 나타나지 않습니다. 개별 커밋 기록이 필요하면 `--backups`로 보고 `--restore-backup 이름`으로 브랜치로 꺼냅니다(꺼낸 브랜치는 올리지 마세요). 이미 원격에 올라간 묶음 커밋을 되돌리려면 강제 푸시가 필요하므로, 되돌리기 대신 꺼내 보기만 합니다.
 
 원격에 브랜치가 아직 없는 **첫 푸시는 묶지 않고 기존 기록을 그대로** 올립니다(이 도구로 만들지 않은 지난 커밋까지 하나로 합쳐 버리지 않도록). 다음 푸시부터 묶습니다.
 
@@ -128,7 +133,7 @@ python Library/GitSync/Tools/gitsync_push.py              # 개별 커밋을 묶
 
 ## 멈추는 경우
 - 커밋: 브랜치가 아닌 커밋(detached HEAD)에 있음, 병합·리베이스·체리픽·bisect 등이 끝나지 않음, 고르지 않은 파일이 이미 스테이징돼 있음, 커밋할 파일이 없음
-- 푸시: 지금 브랜치가 설정의 브랜치가 아님(detached HEAD 포함), 병합·리베이스·bisect 등이 끝나지 않음, 원격에 이 PC에 없는 커밋이 있음(먼저 Pull), 스테이징된 변경이 있음, 올릴 커밋이 없음, 원격 확인 실패·시간 초과(60초)
+- 푸시: 지금 브랜치가 설정의 브랜치가 아님(detached HEAD 포함), 병합·리베이스·bisect 등이 끝나지 않음, 원격에 이 PC에 없는 커밋이 있음(먼저 Pull), 스테이징된 변경이 있음, 올릴 커밋이 없음, 원격 확인 실패·시간 초과(120초, GitHub 로그인 창이 뜰 수 있음), 푸시 실패·시간 초과(10분). 실패하면 원인 안내와 git 오류를 함께 보여 줍니다.
 - 원격에는 올라갔는데 로컬 브랜치를 옮기지 못하면, 직접 실행할 `git reset --soft <커밋>` 명령을 알려 줍니다.
 - 강제 푸시는 하지 않습니다.
 
@@ -146,5 +151,13 @@ Tools~/                  파이썬 도구 (Unity가 가져오지 않는 폴더)
   gitsync_commit.py      로컬 커밋
   gitsync_push.py        시간 규칙 + 묶음 커밋 푸시
   gitsync_common.py      설정·형식 공용
+Tests~/                  시험 (Unity가 가져오지 않는 폴더)
+  test_gitsync.py        임시 원격·예시 프로젝트 MyGame으로 커밋·푸시 도구 시험
 Documentation~/          운영 가이드
+```
+
+## 시험
+패키지 폴더에서 실행합니다. 사용자의 Git 설정·로그인은 쓰지 않습니다.
+```
+python "Tests~/test_gitsync.py"
 ```

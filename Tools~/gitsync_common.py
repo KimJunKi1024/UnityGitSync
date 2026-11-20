@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 SETTINGS_FILE = os.path.join("ProjectSettings", "GitSyncSettings.json")
 DEFAULT_SETTINGS = {
@@ -194,9 +195,41 @@ def run_quiet_with_error(args, timeout, allow_login=False):
     return code, text
 
 
+NETWORK_RETRY_DELAY_SECONDS = 3
+
+
+def run_network(args, timeout):
+    """원격에 접속하는 git 명령(fetch 등)을 실행합니다. (종료 코드, 표준 오류) — 시간 초과면 코드는 None.
+
+    - 로그인 허용(run_quiet_with_error의 allow_login): Unity에서 실행해도 저장된 GitHub 로그인을 쓰거나 로그인 창을 띄움.
+      1.2.0~1.5.0은 입력을 끊고 GIT_TERMINAL_PROMPT=0으로 실행해 Unity에서 비공개 저장소 로그인을 받지 못했음.
+    - 제한 시간: 로그인을 기다리다 끝없이 멈추지 않도록. 시간이 지나면 하위 프로세스까지 끝냄.
+    - 실패하면 3초 뒤 한 번 더: GitHub Desktop이 같은 순간에 fetch해 잠금 충돌로 실패하는 경우.
+    여러 번 실행해도 결과가 같은 명령(fetch·ls-remote)에만 씁니다. push는 push_ref처럼 결과를 확인해서 처리합니다.
+    """
+    code, error = run_quiet_with_error(args, timeout, allow_login=True)
+    if code in (0, None):
+        return code, error
+    time.sleep(NETWORK_RETRY_DELAY_SECONDS)
+    retry_code, retry_error = run_quiet_with_error(args, timeout, allow_login=True)
+    return retry_code, (retry_error or error)
+
+
+def network_failure_message(remote, failed, error_text, code):
+    """원격 접속 실패를 '무엇을 못 했는지 → 할 일 → git 오류' 순서의 안내로 만듭니다. failed 예: "원격(origin)을 확인하지 못했습니다"."""
+    hint = explain_remote_error(remote, error_text)
+    lines = [line.strip() for line in (error_text or "").splitlines() if line.strip()]
+    detail = " / ".join(lines[-3:]) if lines else "(git이 오류 내용을 남기지 않았습니다)"
+    return (f"{failed}. 푸시하지 않습니다.\n"
+            + (f"→ {hint}\n" if hint else "→ 잠시 뒤 다시 푸시해 보고, 같으면 아래 git 오류를 알려 주세요.\n")
+            + f"git 오류(종료 코드 {code}): {detail}")
+
+
 def explain_remote_error(remote, error_text):
-    """원격 확인(fetch) 실패 원인을 개발자가 아니어도 알 수 있는 말로 바꿉니다. 모르는 오류면 빈 문자열."""
+    """원격 접속(fetch·push) 실패 원인을 개발자가 아니어도 알 수 있는 말로 바꿉니다. 모르는 오류면 빈 문자열."""
     text = (error_text or "").lower()
+    if "[rejected]" in text or "fetch first" in text or "non-fast-forward" in text:
+        return "원격에 이 PC에 없는 커밋이 생겼습니다. GitHub Desktop에서 먼저 받아서(Pull) 합친 뒤 다시 푸시하세요."
     if "cannot lock ref" in text or ".lock" in text:
         return ("GitHub Desktop 같은 다른 프로그램이 같은 순간에 원격을 확인하고 있었습니다. "
                 "잠시 뒤 다시 푸시하면 됩니다.")
