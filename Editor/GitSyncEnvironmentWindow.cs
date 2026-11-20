@@ -13,7 +13,7 @@ namespace TeamElarin.GitSync.Editor
     /// 패키지를 처음 설치·업데이트했거나 커밋에 필요한 것이 빠져 있으면 에디터를 켤 때 한 번 자동으로 뜹니다.
     /// 커밋 창을 열 때와 커밋·푸시 직전에 필요한 것이 빠져 있어도 이 패널이 먼저 뜹니다.
     /// </summary>
-    /// <remarks>작성일: 2026-11-12<br/>수정일: 2026-11-12 (환경 확인 창을 패널로: 버전·프로그램/프로젝트 구분·설치 버튼·문서 버튼·자동 표시)</remarks>
+    /// <remarks>작성일: 2026-11-12<br/>수정일: 2026-11-12 (환경 확인 창을 패널로: 버전·프로그램/프로젝트 구분·설치 버튼·문서 버튼·자동 표시)<br/>수정일: 2026-11-20 (업데이트 확인 버튼, 새 버전 표시)</remarks>
     [InitializeOnLoad]
     public class GitSyncEnvironmentWindow : EditorWindow
     {
@@ -113,12 +113,21 @@ namespace TeamElarin.GitSync.Editor
                     GUILayout.Label(string.IsNullOrEmpty(version) ? string.Empty : "v" + version, EditorStyles.boldLabel);
                 }
                 GUILayout.Label("고른 파일만 로컬 커밋하고, 정해진 시간마다 묶음 커밋 1개로 푸시합니다.", EditorStyles.wordWrappedMiniLabel);
+
+                string latestTag = GitSyncUpdateChecker.KnownLatestTag;
+                if (latestTag.Length > 0)
+                    EditorGUILayout.HelpBox($"새 버전 {latestTag}이 있습니다. 툴바의 '업데이트 확인'을 누르면 업데이트 창이 뜹니다.", MessageType.Info);
             }
 
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
                 if (GUILayout.Button("다시 확인", EditorStyles.toolbarButton, GUILayout.Width(70f)))
                     _report = GitSyncEnvironmentCheck.Run();
+                using (new EditorGUI.DisabledScope(GitSyncUpdateChecker.IsChecking))
+                {
+                    if (GUILayout.Button(GitSyncUpdateChecker.IsChecking ? "확인 중…" : "업데이트 확인", EditorStyles.toolbarButton, GUILayout.Width(90f)))
+                        GitSyncUpdateChecker.CheckNow();
+                }
                 GUILayout.FlexibleSpace();
                 GUILayout.Label("검사는 패널을 열 때와 '다시 확인'을 누를 때 실행됩니다.", EditorStyles.miniLabel);
             }
