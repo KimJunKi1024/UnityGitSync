@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 SETTINGS_FILE = os.path.join("ProjectSettings", "GitSyncSettings.json")
 DEFAULT_SETTINGS = {
@@ -166,6 +167,42 @@ def run_quiet(args, timeout):
     except subprocess.TimeoutExpired:
         kill_tree(proc)
         return None
+
+
+def run_quiet_with_error(args, timeout):
+    """run_quiet과 같지만 표준 오류를 임시 파일로 받아 (종료 코드, 오류 내용)을 돌려줍니다. 시간 초과면 코드는 None.
+
+    파이프 대신 파일로 받으므로 하위 프로세스가 남아 있어도 기다리다 멈추지 않습니다.
+    """
+    with tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc)
+            code = None
+        err.seek(0)
+        text = err.read().decode("utf-8", errors="replace").strip()
+    return code, text
+
+
+def explain_remote_error(remote, error_text):
+    """원격 확인(fetch) 실패 원인을 개발자가 아니어도 알 수 있는 말로 바꿉니다. 모르는 오류면 빈 문자열."""
+    text = (error_text or "").lower()
+    if "cannot lock ref" in text or ".lock" in text:
+        return ("GitHub Desktop 같은 다른 프로그램이 같은 순간에 원격을 확인하고 있었습니다. "
+                "잠시 뒤 다시 푸시하면 됩니다.")
+    if ("authentication failed" in text or "error: 403" in text or "permission" in text or "denied" in text
+            or "could not read username" in text or "terminal prompts disabled" in text):
+        return ("GitHub 로그인이나 저장소 권한 문제입니다. GitHub Desktop에서 로그인돼 있는지(File → Options → Accounts), "
+                "팀 저장소에 초대돼 있는지 확인하세요.")
+    if "repository not found" in text or "does not appear to be a git repository" in text:
+        return (f"원격({remote})의 저장소를 찾지 못했습니다. 팀 저장소에 초대돼 있는지, "
+                "설정의 '원격 이름'이 origin인지 확인하세요.")
+    if ("could not resolve host" in text or "failed to connect" in text or "timed out" in text
+            or "unable to access" in text):
+        return "인터넷에 연결돼 있는지 확인한 뒤 다시 푸시하세요."
+    return ""
 
 
 def kill_tree(proc):

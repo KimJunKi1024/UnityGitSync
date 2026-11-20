@@ -40,6 +40,24 @@ https://github.com/KimJunKi1024/UnityGitSync.git
 ## 설정
 **Tools → Git → 설정** (또는 Edit → Project Settings → Git Sync)
 
+### 처음 쓰는 팀원이라면 (개발자가 아니어도)
+위쪽 '프로젝트 공용 설정'은 프로젝트를 만든 사람이 한 번 정해 두면 Git으로 모두에게 함께 내려옵니다. **팀원은 아무것도 바꾸지 않아도 됩니다.** 각 칸 아래의 `이 PC에서 확인` 줄이 모두 ✔이면 그대로 두세요.
+
+| 칸 | 무엇인가 | 무엇을 적나 |
+|---|---|---|
+| 저장소 폴더 | 작업 파일이 들어 있는 Git 폴더. GitHub Desktop의 File → Clone repository로 받은 폴더입니다. | **비워 둡니다.** 비우면 이 Unity 프로젝트가 들어 있는 폴더를 자동으로 찾습니다. |
+| 원격 이름 | GitHub에 있는 팀 저장소를 이 PC에서 부르는 별명입니다. | **`origin`.** GitHub Desktop으로 Clone하면 항상 origin입니다. |
+| 브랜치 | 팀이 함께 작업을 올리는 줄기 이름입니다. | 팀이 정한 이름(보통 **`main`**). GitHub Desktop 위쪽 **Current branch**가 이 이름이어야 푸시됩니다. |
+
+`✖`가 보이면 그 줄의 안내대로 하면 됩니다. 자주 나오는 경우:
+- **Git 폴더 안에 있지 않습니다** → GitHub Desktop에서 팀 저장소를 Clone하고, 받은 폴더 안의 Unity 프로젝트를 Unity Hub에서 엽니다.
+- **원격이 없습니다** → 칸에 `origin`을 적고 저장합니다.
+- **Current branch가 다릅니다** → GitHub Desktop 위쪽 Current branch에서 `main`(팀이 정한 브랜치)을 고릅니다.
+
+처음 프로젝트를 만드는 사람은 **자동으로 채우기**를 누르면 이 PC의 Git에서 찾은 값(GitHub 저장소의 기본 브랜치)으로 채워집니다. 확인한 뒤 **저장**하고 `ProjectSettings/GitSyncSettings.json`을 커밋하면 팀 모두가 같은 값을 씁니다.
+
+### 전체 항목
+
 | 항목 | 저장 위치 | 기본값 | 설명 |
 |---|---|---|---|
 | 저장소 폴더 | `ProjectSettings/GitSyncSettings.json` | 비움 | 비우면 프로젝트 폴더가 들어 있는 Git 저장소. 프로젝트가 저장소의 하위 폴더여도 됨 |

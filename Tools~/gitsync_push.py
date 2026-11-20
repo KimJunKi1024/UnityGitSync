@@ -26,10 +26,12 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 
 import gitsync_common as common
 
 FETCH_TIMEOUT_SECONDS = 60
+FETCH_RETRY_DELAY_SECONDS = 3
 LOG_PREVIEW_LIMIT = 20
 
 
@@ -93,21 +95,37 @@ def check_branch(repo, settings):
     branch = settings["branch"]
     current = common.current_branch(repo)
     if not current:
-        common.fail(f"지금 브랜치가 아닌 커밋(detached HEAD)에 있습니다. 설정의 푸시 브랜치({branch})로 옮긴 뒤 푸시하세요. (푸시하지 않음)\n"
-                    f"  git checkout {branch}\n"
-                    "  여기서 만든 커밋이 있으면 옮기기 전에 git checkout -b 새이름 으로 먼저 보관하세요 (그냥 옮기면 그 커밋은 어느 브랜치에도 속하지 않음).")
+        common.fail(f"지금 브랜치가 아니라 특정 커밋을 보고 있는 상태(detached HEAD)입니다. 푸시하지 않습니다.\n"
+                    f"→ GitHub Desktop 위쪽 Current branch에서 '{branch}'를 고른 뒤 다시 푸시하세요.\n"
+                    "  (이 상태에서 커밋한 것이 있으면 옮기기 전에 GitHub Desktop의 Branch → New branch로 먼저 보관하세요. 그냥 옮기면 그 커밋은 어느 브랜치에도 속하지 않습니다)\n"
+                    f"  명령줄: git checkout {branch}")
     if current != branch:
-        common.fail(f"지금 브랜치는 {current}입니다. 설정의 푸시 브랜치({branch})로 옮긴 뒤 푸시하세요. (푸시하지 않음)\n"
-                    f"  git checkout {branch}   (이 브랜치를 올리려면 설정의 '브랜치'를 {current}로 바꾸세요)")
+        common.fail(f"지금 브랜치는 '{current}'이고, 팀이 올리는 브랜치는 '{branch}'입니다. 푸시하지 않습니다.\n"
+                    f"→ GitHub Desktop 위쪽 Current branch에서 '{branch}'를 고른 뒤 다시 푸시하세요.\n"
+                    f"  (팀이 '{current}' 브랜치에 올리기로 정했을 때만 Tools → Git → 설정의 '브랜치'를 {current}로 바꿉니다)\n"
+                    f"  명령줄: git checkout {branch}")
 
 
 def fetch_remote(repo, remote):
-    """원격 정보를 받아 옵니다. 실패·시간 초과면 멈춤."""
-    code = common.run_quiet(["git", "-C", repo, "fetch", "-q", remote], FETCH_TIMEOUT_SECONDS)
+    """원격 정보를 받아 옵니다. 실패하면 잠시 뒤 한 번 더 시도하고, 그래도 실패·시간 초과면 원인과 함께 멈춤.
+
+    GitHub Desktop이 백그라운드에서 같은 순간에 fetch하면 잠금 충돌로 실패할 수 있어 한 번 더 시도합니다.
+    """
+    args = ["git", "-C", repo, "fetch", "-q", remote]
+    code, error = common.run_quiet_with_error(args, FETCH_TIMEOUT_SECONDS)
+    if code not in (0, None):
+        time.sleep(FETCH_RETRY_DELAY_SECONDS)
+        code, error = common.run_quiet_with_error(args, FETCH_TIMEOUT_SECONDS)
     if code is None:
-        common.fail(f"원격({remote}) 확인이 {FETCH_TIMEOUT_SECONDS}초 안에 끝나지 않았습니다(네트워크·로그인). 푸시하지 않습니다.")
+        common.fail(f"원격({remote}) 확인이 {FETCH_TIMEOUT_SECONDS}초 안에 끝나지 않았습니다. 푸시하지 않습니다.\n"
+                    "→ 인터넷 연결과 GitHub Desktop 로그인을 확인한 뒤 다시 푸시하세요.")
     if code != 0:
-        common.fail(f"원격({remote})을 확인하지 못했습니다(네트워크·권한). 푸시하지 않습니다.")
+        hint = common.explain_remote_error(remote, error)
+        lines = [line.strip() for line in error.splitlines() if line.strip()]
+        detail = " / ".join(lines[-3:]) if lines else "(git이 오류 내용을 남기지 않았습니다)"
+        common.fail(f"원격({remote})을 확인하지 못했습니다. 푸시하지 않습니다.\n"
+                    + (f"→ {hint}\n" if hint else "→ 잠시 뒤 다시 푸시해 보고, 같으면 아래 git 오류를 알려 주세요.\n")
+                    + f"git 오류: {detail}")
 
 
 def bundle_message(repo, settings):

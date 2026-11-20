@@ -368,7 +368,7 @@ namespace TeamElarin.GitSync.Editor
                 if (hasGit && !IsInsideWorkTree(path))
                 {
                     item.Detail = "설정의 저장소 폴더가 Git 저장소가 아닙니다: " + path;
-                    item.Fix = "그 폴더에서 git init 또는 clone을 하거나, 설정의 '저장소 폴더'를 바로잡으세요.";
+                    item.Fix = "설정의 '저장소 폴더' 칸을 비우세요. 비워 두면 이 Unity 프로젝트가 들어 있는 Git 폴더를 자동으로 찾습니다.";
                     item.Action = FixAction.OpenSettings;
                     return item;
                 }
@@ -390,7 +390,7 @@ namespace TeamElarin.GitSync.Editor
             if (code != 0 || string.IsNullOrWhiteSpace(output))
             {
                 item.Detail = "프로젝트 폴더가 Git 저장소 안에 있지 않습니다: " + project;
-                item.Fix = "프로젝트를 저장소 안에 두거나(git init / clone), 설정의 '저장소 폴더'를 지정하세요.";
+                item.Fix = "GitHub Desktop의 File → Clone repository로 팀 저장소를 받고, 받은 폴더 안의 Unity 프로젝트를 여세요. 설정의 '저장소 폴더'는 비워 두면 됩니다.";
                 item.Action = FixAction.OpenSettings;
                 return item;
             }
@@ -463,7 +463,9 @@ namespace TeamElarin.GitSync.Editor
             if (!remotes.Contains(settings.Remote))
             {
                 item.Detail = $"원격 '{settings.Remote}' 이(가) 저장소에 없습니다" + (remotes.Count > 0 ? " (있는 원격: " + string.Join(", ", remotes) + ")" : " (원격 없음)") + ". 로컬 커밋은 할 수 있습니다.";
-                item.Fix = "git remote add 로 원격을 추가하거나, 설정의 '원격 이름'을 바로잡으세요.";
+                item.Fix = remotes.Count > 0
+                    ? $"설정의 '원격 이름' 칸에 {(remotes.Contains("origin") ? "origin" : string.Join(", ", remotes))}을(를) 적고 저장하세요. (GitHub Desktop으로 Clone했다면 origin입니다)"
+                    : "이 Git 폴더는 GitHub와 연결돼 있지 않습니다. 팀 저장소를 GitHub Desktop으로 Clone해서 쓰세요.";
                 item.Action = FixAction.OpenSettings;
                 return item;
             }
@@ -473,13 +475,13 @@ namespace TeamElarin.GitSync.Editor
             if (string.IsNullOrEmpty(current))
             {
                 item.Detail = $"지금 브랜치가 아닌 커밋(detached HEAD)에 있습니다. 설정의 푸시 브랜치는 '{settings.Branch}'입니다.";
-                item.Fix = $"git checkout {settings.Branch} 로 브랜치로 돌아오세요.";
+                item.Fix = $"GitHub Desktop 위쪽 Current branch에서 '{settings.Branch}'를 고르세요.";
                 return item;
             }
             if (current != settings.Branch)
             {
                 item.Detail = $"지금 브랜치는 '{current}'이고 설정의 푸시 브랜치는 '{settings.Branch}'입니다. 로컬 커밋은 할 수 있습니다.";
-                item.Fix = $"git checkout {settings.Branch} 로 옮기거나, 이 브랜치를 올리려면 설정의 '브랜치'를 {current}로 바꾸세요.";
+                item.Fix = $"GitHub Desktop 위쪽 Current branch에서 '{settings.Branch}'를 고르세요. (팀이 '{current}' 브랜치에 올리기로 정했을 때만 설정의 '브랜치'를 {current}로 바꿉니다)";
                 item.Action = FixAction.OpenSettings;
                 return item;
             }
